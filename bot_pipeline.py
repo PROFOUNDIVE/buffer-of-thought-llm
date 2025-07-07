@@ -7,6 +7,8 @@ from meta_buffer_utilis import meta_distiller_prompt,extract_and_execute_code
 from test_templates import game24,checkmate,word_sorting
 from meta_buffer import MetaBuffer
 from openai import OpenAI
+from sentence_transformers import SentenceTransformer
+from typing import Optional, List, Dict
 
 class Pipeline:
     def __init__(self,model_id,api_key=None,base_url='https://api.openai.com/v1/'):
@@ -38,32 +40,18 @@ class Pipeline:
             response = completion.choices[0].message.content
             return response
         else:
-            messages = [
-            {"role": "system", "content": meta_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-
-            prompt = self.pipeline.tokenizer.apply_chat_template(
-                    messages, 
-                    tokenize=False, 
-                    add_generation_prompt=True
-            )
-
-            terminators = [
-                self.pipeline.tokenizer.eos_token_id,
-                self.pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")
-            ]
+            prompt = f"{meta_prompt}\n{user_prompt}"
 
             outputs = self.pipeline(
                 prompt,
                 max_new_tokens=2048,
-                eos_token_id=terminators,
+                eos_token_id=self.pipeline.tokenizer.eos_token_id,
                 do_sample=True,
                 temperature=0.4,
                 top_p=0.9,
             )
-            respond = outputs[0]["generated_text"][len(prompt):]
-            return respond
+            generated = outputs[0]["generated_text"]
+            return generated[len(prompt):]
             
 
 
@@ -75,7 +63,51 @@ class BoT:
         self.embedding_model = embedding_model
         self.base_url = base_url
         self.pipeline = Pipeline(self.model_id,self.api_key,self.base_url)
-        self.meta_buffer = MetaBuffer(self.model_id,self.embedding_model,self.api_key,base_url=self.base_url)
+        self.rag_dir = rag_dir or "./rag_dir"
+        
+        # 1) Load local embedding model
+        from sentence_transformers import SentenceTransformer
+        local_model = SentenceTransformer('all-MiniLM-L6-v2')
+
+        # 2) Define a async local embedding function
+        async def local_embedding_async(texts: list[str]):
+            embeddings = local_model.encode(
+                texts,
+                show_progress_bar=False,
+                convert_to_numpy=True
+            )
+            return embeddings
+
+        # 3) Convey local async function when initializing MetaBuffer
+        self.meta_buffer = MetaBuffer(
+            self.model_id,
+            local_embedding_async,
+            api_key='',
+            base_url=None,
+            rag_dir=self.rag_dir
+        )
+        
+        # Override llm_model_func into local pipeline
+        async def local_llm_async(
+            prompt: str,
+            system_prompt: Optional[str] = None,
+            history_messages: Optional[List[Dict]] = None,
+            **kwargs
+        ) -> str:
+            if history_messages is None:
+                history_messages = []
+                
+            meta = system_prompt or ""
+            user = prompt
+            
+            response = self.pipeline.get_respond(meta, user)
+            return response
+
+
+        # Override both MetaBuffer, RAG into local llms
+        self.meta_buffer.llm_model_func     = local_llm_async
+        self.meta_buffer.rag.llm_model_func = local_llm_async
+        
         self.user_input = user_input
         # Only for test use, stay tuned for our update
         self.problem_id = problem_id 

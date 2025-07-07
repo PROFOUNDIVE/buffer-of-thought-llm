@@ -5,25 +5,40 @@ import numpy as np
 from lightrag.utils import EmbeddingFunc, compute_args_hash
 
 class MetaBuffer:
-    def __init__(self,llm_model,embedding_model,api_key=None,base_url="https://api.openai.com/v1/",rag_dir='./test'):
+    def __init__(self, llm_model, embedding_model, api_key=None,
+                 base_url="https://api.openai.com/v1/", rag_dir='./rag_dir'):
         self.api_key = api_key
         self.llm = llm_model
-        self.embedding_model = embedding_model
         self.base_url = base_url
+        if callable(embedding_model):
+            self.embedding_func = embedding_model
+            try:
+                embedding_dim = embedding_model.__self__.get_sentence_embedding_dimension()
+            except Exception:
+                embedding_dim = 384
+        else:
+            self.embedding_model = embedding_model
+            async def _openai_embed(texts: list[str]) -> np.ndarray:
+                return await openai_embedding(
+                    texts,
+                    model=self.embedding_model,
+                    api_key=self.api_key,
+                    base_url=self.base_url
+                )
+            self.embedding_func = _openai_embed
+            embedding_dim = 3072
         if not os.path.exists(rag_dir):
-            os.mkdir(rag_dir)
+            os.makedirs(rag_dir, exist_ok=True)
         self.rag = LightRAG(
-        working_dir= rag_dir,
-        llm_model_func=self.llm_model_func,  # Use Hugging Face model for text generation
-        # llm_model_name='../../models/Qwen2.5-Math-7B-Instruct',  # Model name from Hugging Face
-        embedding_func=EmbeddingFunc(
-            embedding_dim=3072,
-            max_token_size=8192,
-            func=self.embedding_func
+            working_dir=rag_dir,
+            llm_model_func=self.llm_model_func,
+            embedding_func=EmbeddingFunc(
+                embedding_dim=embedding_dim,
+                max_token_size=8192,
+                func=self.embedding_func
+            )
         )
-    )
         
-       
     async def llm_model_func(
         self, prompt, system_prompt=None, history_messages=[], **kwargs
     ) -> str:
