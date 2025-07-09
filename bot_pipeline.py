@@ -9,6 +9,8 @@ from meta_buffer import MetaBuffer
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 from typing import Optional, List, Dict
+from transformers import AutoTokenizer
+from lightrag import LightRAG, QueryParam
 
 class Pipeline:
     def __init__(self,model_id,api_key=None,base_url='https://api.openai.com/v1/'):
@@ -19,11 +21,11 @@ class Pipeline:
         if api_key is None:
             self.local = True
             self.pipeline = transformers.pipeline(
-        "text-generation",
-        model=self.model_id,
-        model_kwargs={"torch_dtype": torch.bfloat16},
-        device_map = 'auto'
-        )
+                "text-generation",
+                model=self.model_id,
+                model_kwargs={"torch_dtype": torch.bfloat16},
+                device_map = 'auto'
+            )
         else:
             self.api = True
             self.api_key = api_key
@@ -40,18 +42,35 @@ class Pipeline:
             response = completion.choices[0].message.content
             return response
         else:
-            prompt = f"{meta_prompt}\n{user_prompt}"
-
+            messages = [
+                {"role": "system", "content": meta_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            
+            prompt = self.pipeline.tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False, 
+                    add_generation_prompt=False
+            )
+            
+            terminators = [
+                self.pipeline.tokenizer.eos_token_id,
+                self.pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")
+            ]
+            
             outputs = self.pipeline(
                 prompt,
-                max_new_tokens=2048,
-                eos_token_id=self.pipeline.tokenizer.eos_token_id,
+                max_new_tokens=256,
+                eos_token_id=terminators,
                 do_sample=True,
-                temperature=0.4,
+                temperature=0.35,
                 top_p=0.9,
+                # repetition_penalty=1.2,   # 반복 억제
+                # no_repeat_ngram_size=6,
             )
-            generated = outputs[0]["generated_text"]
-            return generated[len(prompt):]
+            respond = outputs[0]["generated_text"][len(prompt):]
+            
+            return respond
             
 
 
@@ -103,15 +122,20 @@ class BoT:
             response = self.pipeline.get_respond(meta, user)
             return response
 
-
         # Override both MetaBuffer, RAG into local llms
         self.meta_buffer.llm_model_func     = local_llm_async
         self.meta_buffer.rag.llm_model_func = local_llm_async
         
         self.user_input = user_input
+        
         # Only for test use, stay tuned for our update
         self.problem_id = problem_id 
         self.need_check = need_check
+        
+        # test thought templates 추가
+        # for template in [game24, checkmate, word_sorting]:
+            # self.meta_buffer.rag.insert(template)
+        
         with open("./math.txt") as f:
             self.meta_buffer.rag.insert(f.read())
             
@@ -119,26 +143,28 @@ class BoT:
         self.user_input = new_input
         
     def problem_distillation(self):
-        print(f'User prompt:{self.user_input}')
+        print(f'[problem_distillation] User prompt:{self.user_input}')
         self.distilled_information = self.pipeline.get_respond(meta_distiller_prompt, self.user_input)
-        print(f'Distilled information:{self.distilled_information}')
+        print(f'[problem_distillation] Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
-        # For initial test use, we will later update the embedding retrieval version to support more, trail version
-        if self.problem_id == 0:
-            self.thought_template = game24
-        elif self.problem_id == 1:
-            self.thought_template = checkmate
-        elif self.problem_id == 2:
-            self.thought_template = word_sorting
+        # self.buffer_prompt = """
+        # You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to first extract most relevant thought template from meta buffer, analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
+        # """
+        self.thought_template = self.meta_buffer.rag.query(self.distilled_information, param=QueryParam(
+                mode="hybrid",
+                only_need_context=True,
+            )
+        )
+        print(f'[buffer_retrieve] Retrieved thought template: {self.thought_template}')
             
     def buffer_instantiation(self):
         self.buffer_prompt = """
         You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to first extract most relevant thought template from meta buffer, analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
         """
-        input = self.buffer_prompt + self.distilled_information
-        self.result = self.meta_buffer.retrieve_and_instantiate(input)
-        print(self.result)
+        run_prompt = self.buffer_prompt + self.distilled_information
+        self.result = self.meta_buffer.retrieve_and_instantiate(self.distilled_information, run_prompt)
+        print(f"[buffer_instantiation] Result: {self.result}")
         
     def buffer_manager(self):
         self.problem_solution_pair = self.user_input + self.result
@@ -167,7 +193,7 @@ Using the formula:
 It should be noted that you should only return the thought template without any extra output.
         """
         self.distilled_thought = self.pipeline.get_respond(thought_distillation_prompt, self.problem_solution_pair)
-        print('Distilled thought: ',self.distilled_thought)
+        print('[thought_distillation] Distilled thought: ',self.distilled_thought)
     def reasoner_instantiation(self):
         # Temporay using selection method to select answer extract method
         problem_id_list = [0,1,2]
@@ -197,7 +223,7 @@ Your respond should follow the format below:
 ```
         """
         self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input)
-        print(f'Instantiated reasoning result: {self.result}')
+        print(f'[reasoner_instantiation] Instantiated reasoning result: {self.result}')
         if self.problem_id in problem_id_list:
             self.final_result, code_str = extract_and_execute_code(self.result)
             if self.need_check:
@@ -223,7 +249,7 @@ Your respond should follow the format below:
                     if self.count > 3:
                         break
                 self.final_result = self.inter_result 
-            print(f'The result of code execution: {self.final_result}')
+            print(f'[reasoner_instantiation] The result of code execution: {self.final_result}')
         else:
             self.final_result = self.result 
 
@@ -232,18 +258,13 @@ Your respond should follow the format below:
         self.problem_distillation()
         self.buffer_retrieve()
         self.reasoner_instantiation()
+        self.buffer_instantiation()
+        self.buffer_manager()
+        
         return self.final_result
     
     def bot_inference(self):
         self.problem_distillation()
         self.buffer_instantiation()
         self.buffer_manager()
-        print('Final results:',self.result)
-    
-    
-
-
-           
-            
-            
-        
+        print('[bot_inference] Final results:',self.result)

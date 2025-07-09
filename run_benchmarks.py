@@ -8,6 +8,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--task_name',type=str,default='gameof24',choices=['gameof24','checkmate','wordsorting'])
 parser.add_argument('--api_key',default=None,type=str,help='input your api key here')
 parser.add_argument('--model_id',type=str,default='gpt-4o',help='Input model id here, if use local model, input the path to the local model')
+parser.add_argument('--rag_dir',type=str,default='./rag_dir',help='Input RAG directory here')
 
 
 
@@ -30,6 +31,7 @@ if __name__ == "__main__":
     task = args.task_name
     api_key = args.api_key
     model_id = args.model_id
+    rag_dir = args.rag_dir
     now = datetime.datetime.now()
     timestamp_str = now.strftime("%Y-%m-%d-%H:%M:%S")
     output_dir = 'test_results'
@@ -59,10 +61,11 @@ if __name__ == "__main__":
     problem_id = buffer_dict[task]
     test_bot = BoT(
             user_input = None,
-            problem_id= problem_id,
-            api_key= api_key,
-            model_id= model_id,
-            need_check = True
+            problem_id = problem_id,
+            api_key = api_key,
+            model_id = model_id,
+            need_check = True,
+            rag_dir = rag_dir
         )
     for line in (open(path)):
         input = json.loads(line)['input']
@@ -73,3 +76,4 @@ if __name__ == "__main__":
         with open(f'test_results/BoT_{task}_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
             json_str = json.dumps(tmp)
             file.write(json_str + '\n')
+        print("-"*20, "[A problem is completed]", "-"*20)
