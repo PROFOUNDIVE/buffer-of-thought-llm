@@ -4,6 +4,7 @@ from lightrag.llm import gpt_4o_mini_complete, gpt_4o_complete,openai_complete_i
 import numpy as np
 from lightrag.utils import EmbeddingFunc, compute_args_hash
 import asyncio
+from logsetting import logger
 
 class MetaBuffer:
     def __init__(self, llm_model, embedding_model, api_key=None,
@@ -70,8 +71,8 @@ class MetaBuffer:
                 # only_need_context=True,
             )
         )
-        print(f"[retrieve_and_instantiate] A type of ctx (only_need_context=False): {type(ctx)}")
-        print(f"[retrieve_and_instantiate] Raw data of ctx(retrieved result): {ctx}")
+        logger.debug(f"A type of ctx (only_need_context=False): {type(ctx)}")
+        logger.debug(f"Raw data of ctx(retrieved result): {ctx}")
         # print(f"[retrieve_and_instantiate] {{retrieve result}} {ctx['context'][0]['content']}")
         
         # instantiation when prompt is not empty
@@ -100,13 +101,13 @@ Now Find most relevant thought template in the MetaBuffer according to the given
         full_prompt = ctx + "\n" + decision_prompt + thought_template
         response = asyncio.run(self.llm_model_func(full_prompt))
 
-        print("[dynamic_update] raw LLM response:", response)
+        logger.info(f"raw LLM response: {response}")
 
         if self.extract_similarity_decision(response):
-            print("[dynamic_update] MetaBuffer Updated!")
+            logger.info("MetaBuffer Updated!")
             self.rag.insert(thought_template)
         else:
-            print("[dynamic_update] No need to Update!")
+            logger.info("No need to Update!")
 
         
     def extract_similarity_decision(self,text):

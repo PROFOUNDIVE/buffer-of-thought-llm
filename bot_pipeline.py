@@ -11,6 +11,7 @@ from sentence_transformers import SentenceTransformer
 from typing import Optional, List, Dict
 from transformers import AutoTokenizer
 from lightrag import LightRAG, QueryParam
+from logsetting import logger
 
 class Pipeline:
     def __init__(self,model_id,api_key=None,base_url='https://api.openai.com/v1/'):
@@ -136,16 +137,16 @@ class BoT:
         # for template in [game24, checkmate, word_sorting]:
             # self.meta_buffer.rag.insert(template)
         
-        with open("./math.txt") as f:
-            self.meta_buffer.rag.insert(f.read())
+        # with open("./math.txt") as f:
+            # self.meta_buffer.rag.insert(f.read())
             
     def update_input(self,new_input):
         self.user_input = new_input
         
     def problem_distillation(self):
-        print(f'[problem_distillation] User prompt:{self.user_input}')
+        logger.info(f"User prompt: {self.user_input}")
         self.distilled_information = self.pipeline.get_respond(meta_distiller_prompt, self.user_input)
-        print(f'[problem_distillation] Distilled information:{self.distilled_information}')
+        logger.info(f'Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
         # self.buffer_prompt = """
@@ -153,10 +154,11 @@ class BoT:
         # """
         self.thought_template = self.meta_buffer.rag.query(self.distilled_information, param=QueryParam(
                 mode="hybrid",
-                only_need_context=True,
+                only_need_context=False
+                # only_need_context=True,
             )
         )
-        print(f'[buffer_retrieve] Retrieved thought template: {self.thought_template}')
+        logger.info(f'Retrieved thought template: {self.thought_template}')
             
     def buffer_instantiation(self):
         self.buffer_prompt = """
@@ -164,7 +166,7 @@ class BoT:
         """
         run_prompt = self.buffer_prompt + self.distilled_information
         self.result = self.meta_buffer.retrieve_and_instantiate(self.distilled_information, run_prompt)
-        print(f"[buffer_instantiation] Result: {self.result}")
+        logger.info(f"Result: {self.result}")
         
     def buffer_manager(self):
         self.problem_solution_pair = self.user_input + self.result
@@ -193,9 +195,10 @@ Using the formula:
 It should be noted that you should only return the thought template without any extra output.
         """
         self.distilled_thought = self.pipeline.get_respond(thought_distillation_prompt, self.problem_solution_pair)
-        print('[thought_distillation] Distilled thought: ',self.distilled_thought)
+        logger.info(f'Distilled thought: {self.distilled_thought}')
     def reasoner_instantiation(self):
         # Temporay using selection method to select answer extract method
+        
         problem_id_list = [0,1,2]
         self.instantiation_instruct = """
 You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a thought template. Your goal is to analyze the user's task and generate a specific solution based on the thought template. If the instantiated solution involves Python code, only provide the code and let the compiler handle it. If the solution does not involve code, provide a final answer that is easy to extract from the text.
@@ -223,7 +226,7 @@ Your respond should follow the format below:
 ```
         """
         self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input)
-        print(f'[reasoner_instantiation] Instantiated reasoning result: {self.result}')
+        logger.info(f'Instantiated reasoning result: {self.result}')
         if self.problem_id in problem_id_list:
             self.final_result, code_str = extract_and_execute_code(self.result)
             if self.need_check:
@@ -235,8 +238,8 @@ Your respond should follow the format below:
                 """
                 self.inter_result = self.final_result
                 while(('An error occurred' in self.inter_result) or (self.inter_result == '') or (self.inter_result == 'None')):
-                    print('The code cannot be executed correctly, here we continue the edit phase:',self.inter_result)
-                    print('The problem code is:',code_str)
+                    logger.warning(f'The code cannot be executed correctly, here we continue the edit phase: {self.inter_result}')
+                    logger.warning(f'The problem code is: {code_str}')
                     self.inter_input = self.pipeline.get_respond(self.inspector_prompt,self.inter_input)
                     print(self.inter_input)
                     self.inter_result, inter_code_str = extract_and_execute_code(self.inter_input)
@@ -249,7 +252,7 @@ Your respond should follow the format below:
                     if self.count > 3:
                         break
                 self.final_result = self.inter_result 
-            print(f'[reasoner_instantiation] The result of code execution: {self.final_result}')
+            logger.info(f'The result of code execution: {self.final_result}')
         else:
             self.final_result = self.result 
 
@@ -267,4 +270,4 @@ Your respond should follow the format below:
         self.problem_distillation()
         self.buffer_instantiation()
         self.buffer_manager()
-        print('[bot_inference] Final results:',self.result)
+        logger.info(f'Final results: {self.result}')
