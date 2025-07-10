@@ -898,7 +898,6 @@ async def hybrid_query(
         hl_keywords = ", ".join(hl_keywords)
         ll_keywords = ", ".join(ll_keywords)
     except json.JSONDecodeError:
-        return result
         try:
             result = (
                 result.replace(kw_prompt[:-1], "")

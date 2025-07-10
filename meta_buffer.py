@@ -66,10 +66,13 @@ class MetaBuffer:
         # retrieve
         ctx = self.rag.query(search_query, param=QueryParam(
                 mode="hybrid",
-                only_need_context=True,
+                only_need_context=False,
+                # only_need_context=True,
             )
         )
-        print(f"[retrieve_and_instantiate] {{retrieve result}} {ctx}")
+        print(f"[retrieve_and_instantiate] A type of ctx (only_need_context=False): {type(ctx)}")
+        print(f"[retrieve_and_instantiate] Raw data of ctx(retrieved result): {ctx}")
+        # print(f"[retrieve_and_instantiate] {{retrieve result}} {ctx['context'][0]['content']}")
         
         # instantiation when prompt is not empty
         if run_prompt != None:
