@@ -5,12 +5,16 @@ import numpy as np
 from lightrag.utils import EmbeddingFunc, compute_args_hash
 import asyncio
 from logsetting import logger
+import nest_asyncio
+
+nest_asyncio.apply()
+LOOP = asyncio.get_event_loop()
 
 class MetaBuffer:
     def __init__(self, llm_model, embedding_model, api_key=None,
                  base_url="https://api.openai.com/v1/", rag_dir='./rag_dir'):
         self.api_key = api_key
-        self.llm = llm_model
+        self.llm_name = llm_model
         self.base_url = base_url
         if callable(embedding_model):
             self.embedding_func = embedding_model
@@ -34,7 +38,7 @@ class MetaBuffer:
         self.rag = LightRAG(
             working_dir=rag_dir,
             llm_model_func=self.llm_model_func,
-            llm_model_name=self.llm,
+            llm_model_name=self.llm_name,
             embedding_func=EmbeddingFunc(
                 embedding_dim=embedding_dim,
                 max_token_size=8192,
@@ -46,7 +50,7 @@ class MetaBuffer:
         self, prompt, system_prompt=None, history_messages=[], **kwargs
     ) -> str:
         return await openai_complete_if_cache(
-            self.llm,
+            self.llm_name,
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
@@ -73,12 +77,12 @@ class MetaBuffer:
         )
         logger.debug(f"A type of ctx (only_need_context=False): {type(ctx)}")
         logger.debug(f"Raw data of ctx(retrieved result): {ctx}")
-        # print(f"[retrieve_and_instantiate] {{retrieve result}} {ctx['context'][0]['content']}")
         
         # instantiation when prompt is not empty
         if run_prompt != None:
-            full_prompt = ctx + "\n" + run_prompt
-            response = asyncio.run(self.llm_model_func(full_prompt))
+            full_prompt = run_prompt + "\n" + ctx
+            # response = asyncio.run(self.llm_model_func(full_prompt)) # for local model
+            response = LOOP.run_until_complete(self.llm_model_func(full_prompt)) # for OpenAI model
             return response
             
         return ctx
@@ -99,7 +103,8 @@ Now Find most relevant thought template in the MetaBuffer according to the given
 
         # LLM에 최종 판단 요청
         full_prompt = ctx + "\n" + decision_prompt + thought_template
-        response = asyncio.run(self.llm_model_func(full_prompt))
+        # response = asyncio.run(self.llm_model_func(full_prompt)) # for local model
+        response = LOOP.run_until_complete(self.llm_model_func(full_prompt)) # for OpenAI model
 
         logger.info(f"raw LLM response: {response}")
 

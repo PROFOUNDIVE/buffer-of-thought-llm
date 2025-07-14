@@ -592,8 +592,9 @@ async def _find_most_related_text_unit_from_entities(
     all_text_units = sorted(
         all_text_units, key=lambda x: (x["order"], -x["relation_counts"])
     )
+    all_valid_units = [t for t in all_text_units if t and t.get("data") and t["data"].get("content")]
     all_text_units = truncate_list_by_token_size(
-        all_text_units,
+        all_valid_units,
         key=lambda x: x["data"]["content"],
         max_token_size=query_param.max_token_for_text_unit,
     )
@@ -864,8 +865,9 @@ async def _find_related_text_unit_from_relationships(
         {"id": k, **v} for k, v in all_text_units_lookup.items() if v is not None
     ]
     all_text_units = sorted(all_text_units, key=lambda x: x["order"])
+    all_valid_units = [t for t in all_text_units if t and t.get("data") and t["data"].get("content")]
     all_text_units = truncate_list_by_token_size(
-        all_text_units,
+        all_valid_units,
         key=lambda x: x["data"]["content"],
         max_token_size=query_param.max_token_for_text_unit,
     )

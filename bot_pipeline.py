@@ -101,9 +101,10 @@ class BoT:
         # 3) Convey local async function when initializing MetaBuffer
         self.meta_buffer = MetaBuffer(
             self.model_id,
-            local_embedding_async,
-            api_key='',
-            base_url=None,
+            self.embedding_model, # OpenAI embedding model
+            # local_embedding_async, # local embedding model
+            api_key=self.api_key or '',
+            base_url=self.base_url or None,
             rag_dir=self.rag_dir
         )
         
@@ -124,8 +125,8 @@ class BoT:
             return response
 
         # Override both MetaBuffer, RAG into local llms
-        self.meta_buffer.llm_model_func     = local_llm_async
-        self.meta_buffer.rag.llm_model_func = local_llm_async
+        # self.meta_buffer.llm_model_func     = local_llm_async
+        # self.meta_buffer.rag.llm_model_func = local_llm_async
         
         self.user_input = user_input
         
@@ -149,9 +150,6 @@ class BoT:
         logger.info(f'Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
-        # self.buffer_prompt = """
-        # You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to first extract most relevant thought template from meta buffer, analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
-        # """
         self.thought_template = self.meta_buffer.rag.query(self.distilled_information, param=QueryParam(
                 mode="hybrid",
                 only_need_context=False
@@ -162,7 +160,8 @@ class BoT:
             
     def buffer_instantiation(self):
         self.buffer_prompt = """
-        You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to first extract most relevant thought template from meta buffer, analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
+        You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
+        Restriction: The output should only contain the solution without any wrap-ups.
         """
         run_prompt = self.buffer_prompt + self.distilled_information
         self.result = self.meta_buffer.retrieve_and_instantiate(self.distilled_information, run_prompt)
@@ -220,7 +219,7 @@ Please analyze the above user task description and thought template, and generat
 You are an excellent python programming master who are proficient in analyzing and editing python code, and you are also good at understanding the real-world problem. Your task is:
 1. Analyze the given python code
 2. Edit the input code to make sure the edited code is correct and could run and solve the problem correctly.  
-Your respond should follow the format below:
+Your respond **should follow the format** below:
 ```python
 ## Edited code here
 ```
@@ -229,6 +228,8 @@ Your respond should follow the format below:
         logger.info(f'Instantiated reasoning result: {self.result}')
         if self.problem_id in problem_id_list:
             self.final_result, code_str = extract_and_execute_code(self.result)
+            logger.debug(f"self.final_result: {self.final_result}")
+            logger.debug(f"code_str: {code_str}")
             if self.need_check:
                 self.count = 0
                 self.inter_input = f"""
@@ -254,17 +255,18 @@ Your respond should follow the format below:
                 self.final_result = self.inter_result 
             logger.info(f'The result of code execution: {self.final_result}')
         else:
-            self.final_result = self.result 
+            self.final_result = self.result
 
     
     def bot_run(self):
         self.problem_distillation()
-        self.buffer_retrieve()
-        self.reasoner_instantiation()
-        self.buffer_instantiation()
+        # self.buffer_retrieve()
+        # self.reasoner_instantiation()
+        self.buffer_instantiation() # Retrieve and instantiate
         self.buffer_manager()
         
-        return self.final_result
+        return self.result
+        # return self.final_result
     
     def bot_inference(self):
         self.problem_distillation()

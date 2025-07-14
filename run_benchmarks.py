@@ -67,13 +67,15 @@ if __name__ == "__main__":
             need_check = True,
             rag_dir = rag_dir
         )
-    for line in (open(path)):
+    for idx, line in enumerate((open(path)), start=1):
+        if idx < 1: # 1번째부터 시작
+            continue
         input = json.loads(line)['input']
         user_input = user_prompt + input
         test_bot.update_input(user_input)
         result = test_bot.bot_run()
         tmp = {'input':input,'result':result}
-        with open(f'test_results/BoT_{task}_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
+        with open(f'test_results/BoT_{task}_{test_bot.model_id}_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
             json_str = json.dumps(tmp)
             file.write(json_str + '\n')
         print("-"*20, "[A problem is completed]", "-"*20)

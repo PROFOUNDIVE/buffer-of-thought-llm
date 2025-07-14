@@ -1,6 +1,7 @@
 import re
 import io
 import sys
+from logsetting import logger
 
 meta_distiller_prompt = """
 
@@ -29,13 +30,13 @@ Distilled Information:
 3. Distilled task:
 
 4. Python transformation:
-   (Optional, skip when Python tag is Not for Python) Input parameters:(The names of each variable should be clear and not confusing, and correspond to the entity names in the problem)
+   (Optional, skip when Python tag is Not for Python.) Input parameters:(The names of each variable should be clear and not confusing, and correspond to the entity names in the problem)
      variable1_name = x
      variable2_name = y
      .....
      variableN_name = z
 
-5. Answer form: (Optional, skip when there is no specific answer form)
+5. Answer form: (Optional, skip when there is no specific answer form. But if the task is gameof24, the output should only be a block of python code wrapped by a "```python (python code) ```".)
 
   **Note: The generation ends here. Do not show this message in your answer !**
   
@@ -91,6 +92,7 @@ def extract_and_execute_code(text):
         sys.stdout = old_stdout
         return new_stdout.getvalue(), code_str
     else:
+        logger.debug(f"Else case(No python code found ...) text: {text}")
         return "No Python code found in the provided string.", None
 
 

@@ -26,5 +26,5 @@ bot = BoT(
           embedding_model = embedding_model,
           base_url = base_url,
           rag_dir = rag_dir
-          )
+)
 bot.bot_inference()
