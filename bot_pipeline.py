@@ -105,7 +105,7 @@ class BoT:
             # local_embedding_async, # local embedding model
             api_key=self.api_key or '',
             base_url=self.base_url or None,
-            rag_dir=self.rag_dir
+            rag_dir=self.rag_dir,
         )
         
         # Override llm_model_func into local pipeline
@@ -127,6 +127,9 @@ class BoT:
         # Override both MetaBuffer, RAG into local llms
         # self.meta_buffer.llm_model_func     = local_llm_async
         # self.meta_buffer.rag.llm_model_func = local_llm_async
+        # await self.meta_buffer.rag.initialize_storages()
+        # await initialize_pipeline_status()
+        
         
         self.user_input = user_input
         
@@ -150,27 +153,46 @@ class BoT:
         logger.info(f'Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
+        search_query = "Find the most similar thought-template in the database for this information:\n"+self.distilled_information
+        logger.debug(f"RAG search query: {search_query}")
         self.thought_template = self.meta_buffer.rag.query(self.distilled_information, param=QueryParam(
                 mode="hybrid",
-                only_need_context=False
-                # only_need_context=True,
+                only_need_context=True,
             )
         )
-        logger.info(f'Retrieved thought template: {self.thought_template}')
-            
+        logger.info(f'Retrieved thought template(RAG response): {self.thought_template}')
+        
     def buffer_instantiation(self):
-        self.buffer_prompt = """
-        You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
-        Restriction: The output should only contain the solution without any wrap-ups.
-        """
-        run_prompt = self.buffer_prompt + self.distilled_information
-        self.result = self.meta_buffer.retrieve_and_instantiate(self.distilled_information, run_prompt)
-        logger.info(f"Result: {self.result}")
+        # self.buffer_prompt = """
+        # You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
+        # Restriction: The output should only contain the solution without any wrap-ups.
+        # """
+        # run_prompt = self.buffer_prompt + self.distilled_information
+        # self.result = self.meta_buffer.retrieve_and_instantiate(self.distilled_information, run_prompt)
+        # logger.info(f"Result: {self.result}")
+        self.instantiation_instruct = """
+You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a thought template. Your goal is to analyze the user's task and generate a specific solution based on the thought template. If the instantiated solution involves Python code, only provide the code and let the compiler handle it. If the solution does not involve code, provide a final answer that is easy to extract from the text.
+It should be noted that all the python code should be within one code block, the answer should not include more than one code block! And strictly follow the thought-template to instantiate the python code but you should also adjust the input parameter according to the user input!
+"""
+
+        self.formated_input = f"""
+Distilled information:
+{self.distilled_information}
+User Input:
+{self.user_input}
+Thought template:
+{self.thought_template}
+
+Instantiated Solution:
+Please analyze the above user task description and thought template, and generate a specific, detailed solution. If the solution involves Python code, only provide the code. If not, provide a clear and extractable final answer.        
+"""
+        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input)
+        logger.info(f'Instantiated reasoning result: {self.result}')
         
     def buffer_manager(self):
         self.problem_solution_pair = self.user_input + self.result
         self.thought_distillation()
-        self.meta_buffer.dynamic_update(self.distilled_thought)
+        self.meta_buffer.dynamic_update(self.pipeline, self.distilled_thought)
         
     def thought_distillation(self):
         thought_distillation_prompt = """You are an expert in problem analysis and generalization. Your task is to follow the format of thought template below and distill a high-level thought template to solve similar problems:
@@ -260,16 +282,17 @@ Your respond **should follow the format** below:
     
     def bot_run(self):
         self.problem_distillation()
-        # self.buffer_retrieve()
+        self.buffer_retrieve()
         # self.reasoner_instantiation()
-        self.buffer_instantiation() # Retrieve and instantiate
+        self.buffer_instantiation()
         self.buffer_manager()
         
-        return self.result
-        # return self.final_result
+        # return self.final_result # for reasoner_instantiation() case
+        return self.result # for buffer_instantiation() case
     
     def bot_inference(self):
         self.problem_distillation()
+        self.buffer_retrieve()
         self.buffer_instantiation()
-        self.buffer_manager()
-        logger.info(f'Final results: {self.result}')
+        # self.buffer_manager()
+        # logger.info(f'Final results: {self.result}')

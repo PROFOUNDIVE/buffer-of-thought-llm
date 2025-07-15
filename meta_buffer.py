@@ -43,7 +43,7 @@ class MetaBuffer:
                 embedding_dim=embedding_dim,
                 max_token_size=8192,
                 func=self.embedding_func
-            )
+            ),
         )
         
     async def llm_model_func(
@@ -71,48 +71,60 @@ class MetaBuffer:
         # retrieve
         ctx = self.rag.query(search_query, param=QueryParam(
                 mode="hybrid",
-                only_need_context=False,
-                # only_need_context=True,
+                only_need_context=True,
             )
         )
-        logger.debug(f"A type of ctx (only_need_context=False): {type(ctx)}")
+        logger.debug(f"A type of ctx: {type(ctx)}")
         logger.debug(f"Raw data of ctx(retrieved result): {ctx}")
         
         # instantiation when prompt is not empty
         if run_prompt != None:
             full_prompt = run_prompt + "\n" + ctx
+            
             # response = asyncio.run(self.llm_model_func(full_prompt)) # for local model
             response = LOOP.run_until_complete(self.llm_model_func(full_prompt)) # for OpenAI model
             return response
             
         return ctx
     
-    def dynamic_update(self, thought_template):
-        decision_prompt = """
-Now Find most relevant thought template in the MetaBuffer according to the given thought template, and Determine whether there is a fundamental difference in the problem-solving approach between this and the most similar thought template in MetaBuffer. If there is  fundamental difference, output "True." Otherwise, output "False." Answer with only True or False.
+    def dynamic_update(self, pipeline, thought_template):
+        system_prompt = """
+Now we found the most relevant thought template in the MetaBuffer according to the given thought template. Determine whether there is a fundamental difference in the problem-solving approach between this and the most similar thought template in MetaBuffer. If there is  fundamental difference or the relevant thought template is empty, output "True." Otherwise, output "False." Remember answer with only True or False.
 """
-
+        meta_prompt = """
+# Our Thought template
+{thought_template}
+# The most relevant Thought template
+{ctx}
+"""
         # RAG에서 context만 추출
+        search_query = "Find the most similar thought-template in the database for this thought template:\n"+thought_template
+        logger.debug(f"RAG search query: {search_query}")
         ctx = self.rag.query(
-            thought_template,
+            search_query,
             param=QueryParam(
                 mode="hybrid",
                 only_need_context=True
             )
         )
+        logger.debug(f"The most relevant thought-template in RAG DB (RAG response): {ctx}")
+        user_prompt = meta_prompt.format(thought_template=thought_template, ctx=ctx)
+        logger.debug(f"user_prompt: {user_prompt}")
 
         # LLM에 최종 판단 요청
-        full_prompt = ctx + "\n" + decision_prompt + thought_template
-        # response = asyncio.run(self.llm_model_func(full_prompt)) # for local model
-        response = LOOP.run_until_complete(self.llm_model_func(full_prompt)) # for OpenAI model
+        # response = pipeline.get_respond(system_prompt, user_prompt) # for local model
+        response = LOOP.run_until_complete(self.llm_model_func(system_prompt+"\n"+user_prompt)) # for OpenAI model
 
-        logger.info(f"raw LLM response: {response}")
-
-        if self.extract_similarity_decision(response):
-            logger.info("MetaBuffer Updated!")
-            self.rag.insert(thought_template)
-        else:
-            logger.info("No need to Update!")
+        logger.info(f"raw LLM response (True or False): {response}")
+        
+        logger.debug("For debugging, we're trying to insert every templates")
+        self.rag.insert(thought_template)
+        # if self.extract_similarity_decision(response):
+            # logger.info("MetaBuffer Updated!")
+            # self.rag.insert(thought_template)
+            # self.rag.count_chunks()
+        # else:
+            # logger.info("No need to Update!")
 
         
     def extract_similarity_decision(self,text):

@@ -13,7 +13,10 @@ parser.add_argument('--rag_dir',type=str,default='./rag_dir',help='Input RAG dir
 
 
 GameOf24 = """
-Let's play a game called 24. You'll be given four integers, and your objective is to use each number only once, combined with any of the four arithmetic operations (addition, subtraction, multiplication, and division) and parentheses, to achieve a total of 24. For example, if the input is 4, 7, 8, and 8, the output could be 7 * 8 - 4 * 8 = 24. You only need to find one feasible solution!
+Let's play a game called 24. You'll be given four integers in a specific order. Your objective is to form an expression that evaluates to 24 by using each number exactly once, in the order they are given, combined only with the four arithmetic operations (addition, subtraction, multiplication, and division) and parentheses. **Do not change or reorder the input numbers; you must use them in the original sequence.**  
+For example, if the input is 4, 7, 8, 8 (in that order), a valid output would be:  
+4 * (7 - 8 / 8) = 24  
+You only need to find one feasible solution!  
 Input:
 """
 CheckmateInOne = """
@@ -68,14 +71,14 @@ if __name__ == "__main__":
             rag_dir = rag_dir
         )
     for idx, line in enumerate((open(path)), start=1):
-        if idx < 1: # 1번째부터 시작
+        if idx > 5: # 1번째부터 시작
             continue
         input = json.loads(line)['input']
         user_input = user_prompt + input
         test_bot.update_input(user_input)
         result = test_bot.bot_run()
         tmp = {'input':input,'result':result}
-        with open(f'test_results/BoT_{task}_{test_bot.model_id}_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
+        with open(f'test_results/BoT_{task}_Llama-3-8B_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
             json_str = json.dumps(tmp)
             file.write(json_str + '\n')
         print("-"*20, "[A problem is completed]", "-"*20)

@@ -93,7 +93,8 @@ def extract_and_execute_code(text):
         return new_stdout.getvalue(), code_str
     else:
         logger.debug(f"Else case(No python code found ...) text: {text}")
-        return "No Python code found in the provided string.", None
+        return text, None
+        # return "No Python code found in the provided string.", None
 
 
 def extract_answer(text):
