@@ -101,8 +101,8 @@ class BoT:
         # 3) Convey local async function when initializing MetaBuffer
         self.meta_buffer = MetaBuffer(
             self.model_id,
-            self.embedding_model, # OpenAI embedding model
-            # local_embedding_async, # local embedding model
+            # self.embedding_model, # OpenAI embedding model
+            local_embedding_async, # local embedding model
             api_key=self.api_key or '',
             base_url=self.base_url or None,
             rag_dir=self.rag_dir,
@@ -125,8 +125,8 @@ class BoT:
             return response
 
         # Override both MetaBuffer, RAG into local llms
-        # self.meta_buffer.llm_model_func     = local_llm_async
-        # self.meta_buffer.rag.llm_model_func = local_llm_async
+        self.meta_buffer.llm_model_func     = local_llm_async
+        self.meta_buffer.rag.llm_model_func = local_llm_async
         # await self.meta_buffer.rag.initialize_storages()
         # await initialize_pipeline_status()
         
@@ -138,8 +138,8 @@ class BoT:
         self.need_check = need_check
         
         # test thought templates 추가
-        # for template in [game24, checkmate, word_sorting]:
-            # self.meta_buffer.rag.insert(template)
+        for template in [game24, checkmate, word_sorting]:
+            self.meta_buffer.rag.insert(template)
         
         # with open("./math.txt") as f:
             # self.meta_buffer.rag.insert(f.read())
@@ -157,7 +157,7 @@ class BoT:
         logger.debug(f"RAG search query: {search_query}")
         self.thought_template = self.meta_buffer.rag.query(self.distilled_information, param=QueryParam(
                 mode="hybrid",
-                only_need_context=True,
+                only_need_context=False,
             )
         )
         logger.info(f'Retrieved thought template(RAG response): {self.thought_template}')
