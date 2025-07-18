@@ -71,7 +71,7 @@ if __name__ == "__main__":
             rag_dir = rag_dir
         )
     for idx, line in enumerate((open(path)), start=1):
-        if idx > 5: # 1번째부터 시작
+        if idx < 1: # 1번째부터 시작
             continue
         input = json.loads(line)['input']
         user_input = user_prompt + input

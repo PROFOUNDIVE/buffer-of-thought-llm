@@ -9,6 +9,8 @@ from transformers import AutoModel, AutoTokenizer
 import asyncio
 from logsetting import logger
 import nest_asyncio
+from sklearn.metrics.pairwise import cosine_similarity
+
 
 nest_asyncio.apply()
 LOOP = asyncio.get_event_loop()
@@ -18,9 +20,9 @@ class MetaBuffer:
         self.api_key = api_key
         self.llm_name = llm_model
         self.base_url = base_url
+        self.DELTA = 0.7
         if not os.path.exists(rag_dir):
             os.makedirs(rag_dir, exist_ok=True)
-            
         async def initialize_rag(WORKING_DIR, llm_model):
             rag = LightRAG(
                 working_dir=WORKING_DIR,
@@ -47,7 +49,6 @@ class MetaBuffer:
 
             return rag
         self.rag = asyncio.run(initialize_rag(rag_dir, llm_model))
-        
     async def llm_model_func(
         self, prompt, system_prompt=None, history_messages=[], **kwargs
     ) -> str:
@@ -72,7 +73,7 @@ class MetaBuffer:
     def retrieve_and_instantiate(self,search_query,run_prompt=None):
         # retrieve
         ctx = self.rag.query(search_query, param=QueryParam(
-                mode="hybrid",
+                mode="naive",
                 only_need_context=False,
             )
         )
@@ -89,9 +90,45 @@ class MetaBuffer:
             
         return ctx
     
+    def is_new_template(self,
+        proposed_template: str,
+        existing_template: str,
+        threshold: float
+    ) -> bool:
+        vecs = asyncio.run(
+            self.rag.embedding_func(
+                [proposed_template, existing_template]
+            )
+        )
+        sim = cosine_similarity([vecs[0]], [vecs[1]])[0][0]
+        
+        return (sim < threshold)
+        
+    
     def dynamic_update(self, pipeline, thought_template):
+        search_query = "Find the most similar thought-template in the database for this thought template:\n"+thought_template
+        logger.debug(f"RAG search query: {search_query}")
+        ctx = self.rag.query(
+            search_query,
+            param=QueryParam(
+                mode="naive",
+                only_need_context=False,
+            )
+        )
+        logger.debug(f"The most relevant thought-template in RAG DB (RAG response): {ctx}")
+        
+        # 1차 필터링: threshold updating rule
+        # if ctx and self.is_new_template(thought_template, ctx, self.DELTA):
+            # logger.debug("It is new template! Temporally we insert this thought template.")
+            # self.rag.insert(thought_template)
+            # return
+        # else:
+            # logger.debug("It is not a new template! Now we terminates")
+            # return
+        
+        # 2차 필터링: LLM에게 판단 요청
         system_prompt = """
-Now we found the most relevant thought template in the MetaBuffer according to the given thought template. Determine whether there is a fundamental difference in the problem-solving approach between this and the most similar thought template in MetaBuffer. If there is  fundamental difference or the relevant thought template is empty, output "True." Otherwise, output "False." Remember answer with only True or False.
+Now we found the most relevant thought template in the MetaBuffer according to the given thought template. Determine whether there is a fundamental difference in the problem-solving approach between given template and the most similar template in MetaBuffer. If there is a fundamental difference, output "True". Otherwise, output "False". Respond **only** “True” or “False” (case‑sensitive) with no other text.
 """
         meta_prompt = """
 # Our Thought template
@@ -99,21 +136,9 @@ Now we found the most relevant thought template in the MetaBuffer according to t
 # The most relevant Thought template
 {ctx}
 """
-        # context만 추출하면 LLM이 알아듣지 못할 format이 되어서 False로 넘김
-        search_query = "Find the most similar thought-template in the database for this thought template:\n"+thought_template
-        logger.debug(f"RAG search query: {search_query}")
-        ctx = self.rag.query(
-            search_query,
-            param=QueryParam(
-                mode="hybrid",
-                only_need_context=False
-            )
-        )
-        logger.debug(f"The most relevant thought-template in RAG DB (RAG response): {ctx}")
         user_prompt = meta_prompt.format(thought_template=thought_template, ctx=ctx)
         logger.debug(f"user_prompt: {user_prompt}")
 
-        # LLM에 최종 판단 요청
         response = pipeline.get_respond(system_prompt, user_prompt) # for local model
         # response = LOOP.run_until_complete(self.llm_model_func(system_prompt+"\n"+user_prompt)) # for OpenAI model
 

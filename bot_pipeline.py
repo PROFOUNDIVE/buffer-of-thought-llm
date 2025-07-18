@@ -138,8 +138,8 @@ class BoT:
         self.need_check = need_check
         
         # test thought templates 추가
-        for template in [game24, checkmate, word_sorting]:
-            self.meta_buffer.rag.insert(template)
+        # for template in [game24, checkmate, word_sorting]:
+            # self.meta_buffer.rag.insert(template)
         
         # with open("./math.txt") as f:
             # self.meta_buffer.rag.insert(f.read())
@@ -155,21 +155,14 @@ class BoT:
     def buffer_retrieve(self):
         search_query = "Find the most similar thought-template in the database for this information:\n"+self.distilled_information
         logger.debug(f"RAG search query: {search_query}")
-        self.thought_template = self.meta_buffer.rag.query(self.distilled_information, param=QueryParam(
-                mode="hybrid",
+        self.thought_template = self.meta_buffer.rag.query(search_query, param=QueryParam(
+                mode="naive",
                 only_need_context=False,
             )
         )
         logger.info(f'Retrieved thought template(RAG response): {self.thought_template}')
         
     def buffer_instantiation(self):
-        # self.buffer_prompt = """
-        # You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a meta buffer that holds multiple thought templates that will help to solve the problem. Your goal is to analyze the user's task and generate a specific solution based on the thought template. Give a final answer that is easy to extract from the text.
-        # Restriction: The output should only contain the solution without any wrap-ups.
-        # """
-        # run_prompt = self.buffer_prompt + self.distilled_information
-        # self.result = self.meta_buffer.retrieve_and_instantiate(self.distilled_information, run_prompt)
-        # logger.info(f"Result: {self.result}")
         self.instantiation_instruct = """
 You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a thought template. Your goal is to analyze the user's task and generate a specific solution based on the thought template. If the instantiated solution involves Python code, only provide the code and let the compiler handle it. If the solution does not involve code, provide a final answer that is easy to extract from the text.
 It should be noted that all the python code should be within one code block, the answer should not include more than one code block! And strictly follow the thought-template to instantiate the python code but you should also adjust the input parameter according to the user input!
