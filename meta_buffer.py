@@ -23,15 +23,10 @@ class MetaBuffer:
         self.DELTA = 0.7
         if not os.path.exists(rag_dir):
             os.makedirs(rag_dir, exist_ok=True)
-        async def initialize_rag(WORKING_DIR, llm_model):
-            rag = LightRAG(
-                working_dir=WORKING_DIR,
-                llm_model_func=hf_model_complete,
-                llm_model_name=llm_model,
-                # llm_model_name="meta-llama/Llama-3.1-8B-Instruct",
-                embedding_func=EmbeddingFunc(
+        if api_key == '':
+            embedding_func=EmbeddingFunc(
                     embedding_dim=384,
-                    max_token_size=5000,
+                    max_token_size=8192,
                     func=lambda texts: hf_embed(
                         texts,
                         tokenizer=AutoTokenizer.from_pretrained(
@@ -41,7 +36,17 @@ class MetaBuffer:
                             "sentence-transformers/all-MiniLM-L6-v2"
                         ),
                     ),
-                ),
+                )
+        else:
+            embedding_func=openai_embed
+        async def initialize_rag(WORKING_DIR, llm_model):
+            # To use OpenAI model, you should run `export OPENAI_API_KEY="sk-…"` in your terminal, it will be modified later.
+            rag = LightRAG(
+                working_dir=WORKING_DIR,
+                llm_model_func=gpt_4o_complete,
+                llm_model_name=llm_model,
+                # llm_model_name="meta-llama/Llama-3.1-8B-Instruct",
+                embedding_func=embedding_func,
             )
 
             await rag.initialize_storages()

@@ -3,6 +3,8 @@ from bot_pipeline import BoT
 import argparse
 import os
 import datetime
+from logsetting import logger
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--task_name',type=str,default='gameof24',choices=['gameof24','checkmate','wordsorting'])
@@ -70,7 +72,11 @@ if __name__ == "__main__":
             need_check = True,
             rag_dir = rag_dir
         )
-    for idx, line in enumerate((open(path)), start=1):
+    
+    iterator = enumerate((open(path)), start=1)
+    with open(path, 'r', encoding='utf-8') as f: total_lines = sum(1 for _ in f)
+    
+    for idx, line in tqdm(iterator, total=total_lines):
         if idx < 1: # 1번째부터 시작
             continue
         input = json.loads(line)['input']
@@ -81,4 +87,4 @@ if __name__ == "__main__":
         with open(f'test_results/BoT_{task}_Llama-3-8B_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
             json_str = json.dumps(tmp)
             file.write(json_str + '\n')
-        print("-"*20, "[A problem is completed]", "-"*20)
+        logger.info("A Problem is completed!")

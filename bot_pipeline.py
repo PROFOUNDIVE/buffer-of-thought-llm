@@ -19,7 +19,7 @@ class Pipeline:
         self.local = False
         self.base_url = base_url
         self.model_id = model_id
-        if api_key is None:
+        if api_key == None and model_id != 'gpt-4o':
             self.local = True
             self.pipeline = transformers.pipeline(
                 "text-generation",
@@ -27,9 +27,11 @@ class Pipeline:
                 model_kwargs={"torch_dtype": torch.bfloat16},
                 device_map = 'auto'
             )
-        else:
+        elif api_key != None:
             self.api = True
             self.api_key = api_key
+        else:
+            logger.critical("Neither API key nor model name were given!")
     def get_respond(self,meta_prompt,user_prompt):
         if self.api:
             client = OpenAI(api_key=self.api_key,base_url= self.base_url)
@@ -61,7 +63,8 @@ class Pipeline:
             
             outputs = self.pipeline(
                 prompt,
-                max_new_tokens=256,
+                # max_new_tokens=256,
+                max_new_tokens=2048,
                 eos_token_id=terminators,
                 do_sample=True,
                 temperature=0.35,
@@ -77,7 +80,7 @@ class Pipeline:
 
         
 class BoT:
-    def __init__(self, user_input,problem_id=0,api_key=None,model_id='gpt-4o-mini',embedding_model='text-embedding-3-large',need_check=False,base_url='https://api.openai.com/v1/',rag_dir=None):
+    def __init__(self, user_input,problem_id=0,api_key=None,model_id='gpt-4o',embedding_model='text-embedding-3-large',need_check=False,base_url='https://api.openai.com/v1/',rag_dir=None):
         self.api_key = api_key
         self.model_id = model_id
         self.embedding_model = embedding_model
@@ -85,51 +88,45 @@ class BoT:
         self.pipeline = Pipeline(self.model_id,self.api_key,self.base_url)
         self.rag_dir = rag_dir or "./rag_dir"
         
-        # 1) Load local embedding model
-        from sentence_transformers import SentenceTransformer
-        local_model = SentenceTransformer('all-MiniLM-L6-v2')
-
-        # 2) Define a async local embedding function
-        async def local_embedding_async(texts: list[str]):
-            embeddings = local_model.encode(
-                texts,
-                show_progress_bar=False,
-                convert_to_numpy=True
+        if api_key == None and model_id != 'gpt-4o': # for local model
+            self.meta_buffer = MetaBuffer(
+                self.model_id,
+                None, # local embedding model will be initialized
+                api_key='',
+                base_url=self.base_url or None,
+                rag_dir=self.rag_dir,
             )
-            return embeddings
-
-        # 3) Convey local async function when initializing MetaBuffer
-        self.meta_buffer = MetaBuffer(
-            self.model_id,
-            # self.embedding_model, # OpenAI embedding model
-            local_embedding_async, # local embedding model
-            api_key=self.api_key or '',
-            base_url=self.base_url or None,
-            rag_dir=self.rag_dir,
-        )
-        
-        # Override llm_model_func into local pipeline
-        async def local_llm_async(
-            prompt: str,
-            system_prompt: Optional[str] = None,
-            history_messages: Optional[List[Dict]] = None,
-            **kwargs
-        ) -> str:
-            if history_messages is None:
-                history_messages = []
-                
-            meta = system_prompt or ""
-            user = prompt
             
-            response = self.pipeline.get_respond(meta, user)
-            return response
+            # Override llm_model_func into local pipeline
+            async def local_llm_async(
+                prompt: str,
+                system_prompt: Optional[str] = None,
+                history_messages: Optional[List[Dict]] = None,
+                **kwargs
+            ) -> str:
+                if history_messages is None:
+                    history_messages = []
+                    
+                meta = system_prompt or ""
+                user = prompt
+                
+                response = self.pipeline.get_respond(meta, user)
+                return response
 
-        # Override both MetaBuffer, RAG into local llms
-        self.meta_buffer.llm_model_func     = local_llm_async
-        self.meta_buffer.rag.llm_model_func = local_llm_async
-        # await self.meta_buffer.rag.initialize_storages()
-        # await initialize_pipeline_status()
-        
+            # Override both MetaBuffer, RAG into local llms
+            self.meta_buffer.llm_model_func     = local_llm_async
+            self.meta_buffer.rag.llm_model_func = local_llm_async
+        elif api_key != None and model_id == 'gpt-4o': # for OpenAI model
+            self.meta_buffer = MetaBuffer(
+                self.model_id, # gpt-4o
+                self.embedding_model,
+                api_key=self.api_key,
+                base_url=self.base_url or None,
+                rag_dir=self.rag_dir,
+            )
+        else:
+            logger.critical("Neither API key nor model name were given!")
+            
         
         self.user_input = user_input
         
