@@ -32,7 +32,7 @@ class Pipeline:
             self.api_key = api_key
         else:
             logger.critical("Neither API key nor model name were given!")
-    def get_respond(self,meta_prompt,user_prompt):
+    def get_respond(self, meta_prompt, user_prompt, decoding_profile=None):
         if self.api:
             client = OpenAI(api_key=self.api_key,base_url= self.base_url)
             completion = client.chat.completions.create(
@@ -60,17 +60,45 @@ class Pipeline:
                 self.pipeline.tokenizer.eos_token_id,
                 self.pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")
             ]
-            
+            if decoding_profile == None:
+                raise ValueError("No decoding_profile were given!")
+            elif decoding_profile == "summary":
+                gen_kwargs={
+                    "do_sample": True,
+                    "temperature": 0.5,
+                    "top_p": 0.95,
+                    "max_new_tokens": 512,
+                    "repetition_penalty": 1.1,
+                    "no_repeat_ngram_size": 4,
+                    # "typical_p": 0.95,
+                }
+            elif decoding_profile == "retrieve":
+                gen_kwargs={
+                    "do_sample": False,
+                    "temperature": 0,
+                    "top_p": 1,
+                    # "typical_p": 0.95,
+                    "max_new_tokens": 1024,
+                    "repetition_penalty": 1.0,
+                    "no_repeat_ngram_size": 0,
+                }
+            elif decoding_profile == "instantiation":
+                gen_kwargs={
+                    "do_sample": True,
+                    "temperature": 0.35,
+                    "top_p": 0.85,
+                    "max_new_tokens": 1024,
+                }
+            elif decoding_profile == "self-correction":
+                gen_kwargs={
+                    "do_sample": False,
+                    "max_new_tokens": 256,
+                }
+            else:
+                raise ValueError("No valid decoding_profile were chosen!")
             outputs = self.pipeline(
                 prompt,
-                # max_new_tokens=256,
-                max_new_tokens=2048,
-                eos_token_id=terminators,
-                do_sample=True,
-                temperature=0.35,
-                top_p=0.9,
-                # repetition_penalty=1.2,   # 반복 억제
-                # no_repeat_ngram_size=6,
+                **gen_kwargs
             )
             respond = outputs[0]["generated_text"][len(prompt):]
             
@@ -110,7 +138,7 @@ class BoT:
                 meta = system_prompt or ""
                 user = prompt
                 
-                response = self.pipeline.get_respond(meta, user)
+                response = self.pipeline.get_respond(meta, user,decoding_profile="retrieve")
                 return response
 
             # Override both MetaBuffer, RAG into local llms
@@ -146,7 +174,7 @@ class BoT:
         
     def problem_distillation(self):
         logger.info(f"User prompt: {self.user_input}")
-        self.distilled_information = self.pipeline.get_respond(meta_distiller_prompt, self.user_input)
+        self.distilled_information = self.pipeline.get_respond(meta_distiller_prompt, self.user_input, decoding_profile="summary")
         logger.info(f'Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
@@ -176,7 +204,7 @@ Thought template:
 Instantiated Solution:
 Please analyze the above user task description and thought template, and generate a specific, detailed solution. If the solution involves Python code, only provide the code. If not, provide a clear and extractable final answer.        
 """
-        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input)
+        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input, decoding_profile="instantiation")
         logger.info(f'Instantiated reasoning result: {self.result}')
         
     def buffer_manager(self):
@@ -205,7 +233,7 @@ Using the formula:
 
 It should be noted that you should only return the thought template without any extra output.
         """
-        self.distilled_thought = self.pipeline.get_respond(thought_distillation_prompt, self.problem_solution_pair)
+        self.distilled_thought = self.pipeline.get_respond(thought_distillation_prompt, self.problem_solution_pair, decoding_profile="summary")
         logger.info(f'Distilled thought: {self.distilled_thought}')
     def reasoner_instantiation(self):
         # Temporay using selection method to select answer extract method
@@ -236,7 +264,7 @@ Your respond **should follow the format** below:
 ## Edited code here
 ```
         """
-        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input)
+        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input, decoding_profile="instantiation")
         logger.info(f'Instantiated reasoning result: {self.result}')
         if self.problem_id in problem_id_list:
             self.final_result, code_str = extract_and_execute_code(self.result)
@@ -253,7 +281,7 @@ Your respond **should follow the format** below:
                 while(('An error occurred' in self.inter_result) or (self.inter_result == '') or (self.inter_result == 'None')):
                     logger.warning(f'The code cannot be executed correctly, here we continue the edit phase: {self.inter_result}')
                     logger.warning(f'The problem code is: {code_str}')
-                    self.inter_input = self.pipeline.get_respond(self.inspector_prompt,self.inter_input)
+                    self.inter_input = self.pipeline.get_respond(self.inspector_prompt,self.inter_input, decoding_profile="self-correction")
                     print(self.inter_input)
                     self.inter_result, inter_code_str = extract_and_execute_code(self.inter_input)
                     self.inter_input = f"""

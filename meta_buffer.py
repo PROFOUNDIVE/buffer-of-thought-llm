@@ -144,7 +144,7 @@ Now we found the most relevant thought template in the MetaBuffer according to t
         user_prompt = meta_prompt.format(thought_template=thought_template, ctx=ctx)
         logger.debug(f"user_prompt: {user_prompt}")
 
-        response = pipeline.get_respond(system_prompt, user_prompt) # for local model
+        response = pipeline.get_respond(system_prompt, user_prompt, decoding_profile="instantiation") # for local model
         # response = LOOP.run_until_complete(self.llm_model_func(system_prompt+"\n"+user_prompt)) # for OpenAI model
 
         logger.info(f"raw LLM response (True or False): {response}")
