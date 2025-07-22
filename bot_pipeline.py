@@ -63,42 +63,40 @@ class Pipeline:
             if decoding_profile == None:
                 raise ValueError("No decoding_profile were given!")
             elif decoding_profile == "summary":
-                gen_kwargs={
-                    "do_sample": True,
-                    "temperature": 0.5,
-                    "top_p": 0.95,
-                    "max_new_tokens": 512,
-                    "repetition_penalty": 1.1,
-                    "no_repeat_ngram_size": 4,
-                    # "typical_p": 0.95,
-                }
+                gen_config = transformers.GenerationConfig(
+                    do_sample=True,
+                    temperature=0.2,
+                    top_p=0.1,
+                    max_new_tokens=512,
+                    repetition_penalty=1.1,
+                    no_repeat_ngram_size=4,
+                    # typical_p=0.95,
+                )
             elif decoding_profile == "retrieve":
-                gen_kwargs={
-                    "do_sample": False,
-                    "temperature": 0,
-                    "top_p": 1,
-                    # "typical_p": 0.95,
-                    "max_new_tokens": 1024,
-                    "repetition_penalty": 1.0,
-                    "no_repeat_ngram_size": 0,
-                }
+                gen_config = transformers.GenerationConfig(
+                    do_sample=False,
+                    max_new_tokens=1024,
+                    repetition_penalty=1.0,
+                    no_repeat_ngram_size=0,
+                    # typical_p=0.95,
+                )
             elif decoding_profile == "instantiation":
-                gen_kwargs={
-                    "do_sample": True,
-                    "temperature": 0.35,
-                    "top_p": 0.85,
-                    "max_new_tokens": 1024,
-                }
+                gen_config = transformers.GenerationConfig(
+                    do_sample=True,
+                    temperature=0.2,
+                    top_p=0.4,
+                    max_new_tokens=1024,
+                )
             elif decoding_profile == "self-correction":
-                gen_kwargs={
-                    "do_sample": False,
-                    "max_new_tokens": 256,
-                }
+                gen_config = transformers.GenerationConfig(
+                    do_sample=False,
+                    max_new_tokens=256,
+                )
             else:
                 raise ValueError("No valid decoding_profile were chosen!")
             outputs = self.pipeline(
                 prompt,
-                **gen_kwargs
+                generation_config=gen_config
             )
             respond = outputs[0]["generated_text"][len(prompt):]
             
