@@ -25,15 +25,18 @@ class MetaBuffer:
             os.makedirs(rag_dir, exist_ok=True)
         if api_key == '':
             embedding_func=EmbeddingFunc(
-                    embedding_dim=384,
+                    embedding_dim=1024,
+                    # embedding_dim=384,
                     max_token_size=8192,
                     func=lambda texts: hf_embed(
                         texts,
                         tokenizer=AutoTokenizer.from_pretrained(
-                            "sentence-transformers/all-MiniLM-L6-v2"
+                            "BAAI/bge-m3"
+                            # "sentence-transformers/all-MiniLM-L6-v2"
                         ),
                         embed_model=AutoModel.from_pretrained(
-                            "sentence-transformers/all-MiniLM-L6-v2"
+                            "BAAI/bge-m3"
+                            # "sentence-transformers/all-MiniLM-L6-v2"
                         ),
                     ),
                 )

@@ -75,7 +75,7 @@ class Pipeline:
             elif decoding_profile == "retrieve":
                 gen_config = transformers.GenerationConfig(
                     do_sample=False,
-                    max_new_tokens=1024,
+                    max_new_tokens=2048,
                     repetition_penalty=1.0,
                     no_repeat_ngram_size=0,
                     # typical_p=0.95,
@@ -85,7 +85,7 @@ class Pipeline:
                     do_sample=True,
                     temperature=0.2,
                     top_p=0.4,
-                    max_new_tokens=1024,
+                    max_new_tokens=2048,
                 )
             elif decoding_profile == "self-correction":
                 gen_config = transformers.GenerationConfig(
