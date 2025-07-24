@@ -32,6 +32,38 @@ class Pipeline:
             self.api_key = api_key
         else:
             logger.critical("Neither API key nor model name were given!")
+        self.gen_config_map = {
+            "summary": transformers.GenerationConfig(
+                do_sample=False,
+                num_beams=5,
+                max_new_tokens=512,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=4,
+            ),
+            "retrieve": transformers.GenerationConfig(
+                do_sample=False,
+                max_new_tokens=2048,
+                repetition_penalty=1.0,
+                no_repeat_ngram_size=0,
+            ),
+            "instantiation": transformers.GenerationConfig(
+                do_sample=True,
+                temperature=0.7,
+                top_p=1,
+                max_new_tokens=2048,
+            ),
+            "self-correction": transformers.GenerationConfig(
+                do_sample=False,
+                num_beams=4,
+                early_stopping=True,
+                max_new_tokens=128,
+                repetition_penalty=1.1,
+                no_repeat_ngram_size=3,
+            ),
+        }
+        for profile, cfg in self.gen_config_map.items():
+            logger.info(f"decoding_profile={profile} gen_config={cfg}")
+
     def get_respond(self, meta_prompt, user_prompt, decoding_profile=None):
         if self.api:
             client = OpenAI(api_key=self.api_key,base_url= self.base_url)
@@ -60,40 +92,10 @@ class Pipeline:
                 self.pipeline.tokenizer.eos_token_id,
                 self.pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")
             ]
-            if decoding_profile == None:
-                raise ValueError("No decoding_profile were given!")
-            elif decoding_profile == "summary":
-                gen_config = transformers.GenerationConfig(
-                    do_sample=True,
-                    temperature=0.2,
-                    top_p=0.1,
-                    max_new_tokens=512,
-                    repetition_penalty=1.1,
-                    no_repeat_ngram_size=4,
-                    # typical_p=0.95,
-                )
-            elif decoding_profile == "retrieve":
-                gen_config = transformers.GenerationConfig(
-                    do_sample=False,
-                    max_new_tokens=2048,
-                    repetition_penalty=1.0,
-                    no_repeat_ngram_size=0,
-                    # typical_p=0.95,
-                )
-            elif decoding_profile == "instantiation":
-                gen_config = transformers.GenerationConfig(
-                    do_sample=True,
-                    temperature=0.2,
-                    top_p=0.4,
-                    max_new_tokens=2048,
-                )
-            elif decoding_profile == "self-correction":
-                gen_config = transformers.GenerationConfig(
-                    do_sample=False,
-                    max_new_tokens=256,
-                )
-            else:
-                raise ValueError("No valid decoding_profile were chosen!")
+            if decoding_profile not in self.gen_config_map:
+                raise ValueError(f"No valid decoding_profile: {decoding_profile}!")
+            gen_config = self.gen_config_map[decoding_profile]
+            
             outputs = self.pipeline(
                 prompt,
                 generation_config=gen_config
@@ -263,7 +265,7 @@ Your respond **should follow the format** below:
 ```
         """
         self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input, decoding_profile="instantiation")
-        logger.info(f'Instantiated reasoning result: {self.result}')
+        logger.info(f'(1st) Instantiated reasoning result: {self.result}')
         if self.problem_id in problem_id_list:
             self.final_result, code_str = extract_and_execute_code(self.result)
             logger.debug(f"self.final_result: {self.final_result}")
@@ -291,7 +293,7 @@ Your respond **should follow the format** below:
                     if self.count > 3:
                         break
                 self.final_result = self.inter_result 
-            logger.info(f'The result of code execution: {self.final_result}')
+            logger.info(f'({self.count+1}th) The result of code execution: {self.final_result}')
         else:
             self.final_result = self.result
 

@@ -15,10 +15,12 @@ parser.add_argument('--rag_dir',type=str,default='./rag_dir',help='Input RAG dir
 
 
 GameOf24 = """
-Let's play a game called 24. You'll be given four integers in a specific order. Your objective is to form an expression that evaluates to 24 by using each number exactly once, in the order they are given, combined only with the four arithmetic operations (addition, subtraction, multiplication, and division) and parentheses. **Do not change or reorder the input numbers; you must use them in the original sequence.**  
-For example, if the input is 4, 7, 8, 8 (in that order), a valid output would be:  
-4 * (7 - 8 / 8) = 24  
-You only need to find one feasible solution!  
+Let's play a game called 24. You will get four numbers. Use each number exactly once, in any order, and only these operations: + – * /. You may add parentheses. Make an expression that equals 24. You only need find one feasible solution.
+
+Example:
+Input: 4 9 10 13  
+Output: (10 - 4) * (13 - 9) = 24
+
 Input:
 """
 CheckmateInOne = """
