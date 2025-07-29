@@ -178,7 +178,11 @@ class BoT:
         logger.info(f'Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
-        search_query = "Find the most similar thought-template in the database for this information:\n"+self.distilled_information
+        search_query = (
+            "Retrieve the single most relevant, high‑quality thought‑template that best matches the following distilled information."
+            "Return only the template text without extra explanation.\nDistilled information:\n"
+            + self.distilled_information
+        )
         logger.debug(f"RAG search query: {search_query}")
         self.thought_template = self.meta_buffer.rag.query(search_query, param=QueryParam(
                 mode="naive",
