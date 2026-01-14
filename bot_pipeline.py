@@ -2,6 +2,8 @@ import transformers
 import torch
 import http.client
 import json
+import os
+import time
 from accelerate import infer_auto_device_map
 from meta_buffer_utilis import meta_distiller_prompt,extract_and_execute_code
 from test_templates import game24,checkmate,word_sorting
@@ -13,13 +15,30 @@ from transformers import AutoTokenizer
 from lightrag import LightRAG, QueryParam
 from logsetting import logger
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+
+def _resolve_openai_api_key(explicit_api_key: Optional[str]) -> Optional[str]:
+    if explicit_api_key:
+        return explicit_api_key
+    return os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_TOKEN")
+
 class Pipeline:
     def __init__(self,model_id,api_key=None,base_url='https://api.openai.com/v1/'):
         self.api = False
         self.local = False
         self.base_url = base_url
         self.model_id = model_id
-        if api_key == None and model_id != 'gpt-4o':
+        api_key = _resolve_openai_api_key(api_key)
+
+        is_openai_model = isinstance(self.model_id, str) and self.model_id.startswith("gpt-")
+        if api_key:
+            self.api = True
+            self.api_key = api_key
+        elif not is_openai_model:
             self.local = True
             self.pipeline = transformers.pipeline(
                 "text-generation",
@@ -27,11 +46,10 @@ class Pipeline:
                 model_kwargs={"torch_dtype": torch.bfloat16},
                 device_map = 'auto'
             )
-        elif api_key != None:
-            self.api = True
-            self.api_key = api_key
         else:
-            logger.critical("Neither API key nor model name were given!")
+            logger.critical(
+                "Missing OpenAI API key. Set OPENAI_API_KEY (e.g., `source .env/secrets.env`) or pass --api_key."
+            )
         self.gen_config_map = {
             "summary": transformers.GenerationConfig(
                 do_sample=False,
@@ -64,9 +82,81 @@ class Pipeline:
         for profile, cfg in self.gen_config_map.items():
             logger.info(f"decoding_profile={profile} gen_config={cfg}")
 
+        self.model_pricing = {
+            "gpt-4o": {"prompt": 5 / 1_000_000, "completion": 15 / 1_000_000},
+            "gpt-4o-mini": {"prompt": 0.15 / 1_000_000, "completion": 0.6 / 1_000_000},
+            "gpt-4-turbo": {"prompt": 10 / 1_000_000, "completion": 30 / 1_000_000},
+        }
+        self.reset_metrics()
+
+    def reset_metrics(self):
+        self.metrics = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "api_cost": None,
+            "latency": 0.0,
+            "calls": 0,
+        }
+
+    def _normalize_usage(self, usage):
+        if usage is None:
+            return None
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens")
+        else:
+            prompt_tokens = getattr(usage, "prompt_tokens", 0)
+            completion_tokens = getattr(usage, "completion_tokens", 0)
+            total_tokens = getattr(usage, "total_tokens", None)
+        if total_tokens is None:
+            total_tokens = prompt_tokens + completion_tokens
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+
+    def _pricing_for_model(self):
+        pricing = self.model_pricing.get(self.model_id)
+        if pricing is not None:
+            return pricing
+        for key in sorted(self.model_pricing.keys(), key=len, reverse=True):
+            if self.model_id.startswith(key):
+                return self.model_pricing[key]
+        return None
+
+
+    def _calculate_cost(self, usage):
+        pricing = self._pricing_for_model()
+        if pricing is None or usage is None:
+            return None
+        return usage["prompt_tokens"] * pricing["prompt"] + usage["completion_tokens"] * pricing["completion"]
+
+    def _update_metrics(self, usage, latency):
+        self.metrics["calls"] += 1
+        if latency is not None:
+            self.metrics["latency"] += latency
+        if usage is None:
+            return
+        self.metrics["prompt_tokens"] += usage.get("prompt_tokens", 0)
+        self.metrics["completion_tokens"] += usage.get("completion_tokens", 0)
+        self.metrics["total_tokens"] += usage.get("total_tokens", 0)
+        cost = self._calculate_cost(usage)
+        if cost is not None:
+            if self.metrics["api_cost"] is None:
+                self.metrics["api_cost"] = cost
+            else:
+                self.metrics["api_cost"] += cost
+
+    def get_metrics(self):
+        return dict(self.metrics)
+
     def get_respond(self, meta_prompt, user_prompt, decoding_profile=None):
+        start_time = time.perf_counter()
         if self.api:
-            client = OpenAI(api_key=self.api_key,base_url= self.base_url)
+            client = OpenAI(api_key=self.api_key, base_url=self.base_url)
             completion = client.chat.completions.create(
                 model=self.model_id,
                 messages=[
@@ -75,56 +165,76 @@ class Pipeline:
                 ],
             )
             response = completion.choices[0].message.content
+            latency = time.perf_counter() - start_time
+            usage = self._normalize_usage(getattr(completion, "usage", None))
+            self._update_metrics(usage, latency)
             return response
-        else:
-            messages = [
-                {"role": "system", "content": meta_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-            
-            prompt = self.pipeline.tokenizer.apply_chat_template(
-                    messages, 
-                    tokenize=False, 
-                    add_generation_prompt=False
-            )
-            
-            terminators = [
-                self.pipeline.tokenizer.eos_token_id,
-                self.pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>")
-            ]
-            if decoding_profile not in self.gen_config_map:
-                raise ValueError(f"No valid decoding_profile: {decoding_profile}!")
-            gen_config = self.gen_config_map[decoding_profile]
-            
-            outputs = self.pipeline(
-                prompt,
-                generation_config=gen_config
-            )
-            respond = outputs[0]["generated_text"][len(prompt):]
-            
-            return respond
+
+        messages = [
+            {"role": "system", "content": meta_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        prompt = self.pipeline.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+
+        terminators = [
+            self.pipeline.tokenizer.eos_token_id,
+            self.pipeline.tokenizer.convert_tokens_to_ids("<|eot_id|>"),
+        ]
+        if decoding_profile not in self.gen_config_map:
+            raise ValueError(f"No valid decoding_profile: {decoding_profile}!")
+        gen_config = self.gen_config_map[decoding_profile]
+
+        outputs = self.pipeline(
+            prompt,
+            generation_config=gen_config,
+        )
+        respond = outputs[0]["generated_text"][len(prompt):]
+        latency = time.perf_counter() - start_time
+        prompt_tokens = None
+        completion_tokens = None
+        try:
+            prompt_tokens = len(self.pipeline.tokenizer.encode(prompt))
+            completion_tokens = len(self.pipeline.tokenizer.encode(respond))
+        except Exception:
+            prompt_tokens = None
+            completion_tokens = None
+        usage = None
+        if prompt_tokens is not None and completion_tokens is not None:
+            usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            }
+        self._update_metrics(usage, latency)
+        return respond
             
 
 
         
 class BoT:
-    def __init__(self, user_input,problem_id=0,api_key=None,model_id='gpt-4o',embedding_model='text-embedding-3-large',need_check=False,base_url='https://api.openai.com/v1/',rag_dir=None):
-        self.api_key = api_key
+    def __init__(self, user_input,problem_id=0,api_key=None,model_id='gpt-4o',embedding_model='text-embedding-3-large',need_check=False,base_url='https://api.openai.com/v1/',rag_dir=None,run_mode="text"):
+        self.api_key = _resolve_openai_api_key(api_key)
         self.model_id = model_id
         self.embedding_model = embedding_model
         self.base_url = base_url
         self.pipeline = Pipeline(self.model_id,self.api_key,self.base_url)
         self.rag_dir = rag_dir or "./rag_dir"
-        
-        if api_key == None and model_id != 'gpt-4o': # for local model
+
+        is_openai_model = isinstance(self.model_id, str) and self.model_id.startswith("gpt-")
+        if not self.api_key and not is_openai_model:  # local model
             self.meta_buffer = MetaBuffer(
                 self.model_id,
-                None, # local embedding model will be initialized
+                None,  # local embedding model will be initialized
                 api_key='',
                 base_url=self.base_url or None,
                 rag_dir=self.rag_dir,
             )
-            
+
             # Override llm_model_func into local pipeline
             async def local_llm_async(
                 prompt: str,
@@ -134,26 +244,28 @@ class BoT:
             ) -> str:
                 if history_messages is None:
                     history_messages = []
-                    
+
                 meta = system_prompt or ""
                 user = prompt
-                
+
                 response = self.pipeline.get_respond(meta, user,decoding_profile="retrieve")
                 return response
 
             # Override both MetaBuffer, RAG into local llms
             self.meta_buffer.llm_model_func     = local_llm_async
             self.meta_buffer.rag.llm_model_func = local_llm_async
-        elif api_key != None and model_id == 'gpt-4o': # for OpenAI model
+        elif self.api_key and is_openai_model:  # OpenAI model (e.g., gpt-4o-mini)
             self.meta_buffer = MetaBuffer(
-                self.model_id, # gpt-4o
+                self.model_id,
                 self.embedding_model,
                 api_key=self.api_key,
                 base_url=self.base_url or None,
                 rag_dir=self.rag_dir,
             )
         else:
-            logger.critical("Neither API key nor model name were given!")
+            logger.critical(
+                "Missing OpenAI API key. Set OPENAI_API_KEY (e.g., `source .env/secrets.env`) or pass --api_key."
+            )
             
         
         self.user_input = user_input
@@ -161,6 +273,10 @@ class BoT:
         # Only for test use, stay tuned for our update
         self.problem_id = problem_id 
         self.need_check = need_check
+        if run_mode not in {"text", "code"}:
+            raise ValueError(f"Unknown run_mode: {run_mode}")
+        self.run_mode = run_mode
+        self.run_metrics = {}
         
         # test thought templates 추가
         # for template in [game24, checkmate, word_sorting]:
@@ -303,18 +419,33 @@ Your respond **should follow the format** below:
 
     
     def bot_run(self):
+        self.pipeline.reset_metrics()
+        start_time = time.perf_counter()
         self.problem_distillation()
         self.buffer_retrieve()
-        # self.reasoner_instantiation()
-        self.buffer_instantiation()
+        if self.run_mode == "code":
+            self.reasoner_instantiation()
+            self.result = self.final_result
+        else:
+            self.buffer_instantiation()
         self.buffer_manager()
-        
-        # return self.final_result # for reasoner_instantiation() case
-        return self.result # for buffer_instantiation() case
+        self.run_metrics = self.pipeline.get_metrics()
+        self.run_metrics["llm_latency"] = self.run_metrics.get("latency", 0.0)
+        self.run_metrics["latency"] = time.perf_counter() - start_time
+        return self.result
     
     def bot_inference(self):
+        self.pipeline.reset_metrics()
+        start_time = time.perf_counter()
         self.problem_distillation()
         self.buffer_retrieve()
-        self.buffer_instantiation()
+        if self.run_mode == "code":
+            self.reasoner_instantiation()
+            self.result = self.final_result
+        else:
+            self.buffer_instantiation()
+        self.run_metrics = self.pipeline.get_metrics()
+        self.run_metrics["llm_latency"] = self.run_metrics.get("latency", 0.0)
+        self.run_metrics["latency"] = time.perf_counter() - start_time
         # self.buffer_manager()
         # logger.info(f'Final results: {self.result}')

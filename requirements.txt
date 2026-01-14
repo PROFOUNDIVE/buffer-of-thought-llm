@@ -14,6 +14,8 @@ glm==0.4.4
 gunicorn==23.0.0
 httpx==0.28.1
 imgui_bundle==1.92.0
+ollama
+openai
 llama_index==0.12.50
 moderngl==5.12.0
 nano_vectordb==0.0.4.3
@@ -28,7 +30,7 @@ pipmaster==0.9.2
 psutil==5.9.8
 psycopg==3.2.9
 psycopg_pool==3.2.6
-pydantic==2.11.7
+pydantic>=2.9
 PyJWT==2.10.1
 pymilvus==2.5.14
 pymongo==4.13.2
@@ -44,10 +46,11 @@ SQLAlchemy==2.0.41
 starlette==0.47.2
 tenacity==9.1.2
 tiktoken==0.9.0
+urllib3<1.27,>=1.25.4
 torch==2.7.1
 tqdm==4.67.1
 transformers==4.53.3
-typing_extensions==4.14.1
+typing_extensions>=4.12.0
 uvicorn==0.35.0
 voyageai==0.3.3
 zhipuai==2.1.5.20250717

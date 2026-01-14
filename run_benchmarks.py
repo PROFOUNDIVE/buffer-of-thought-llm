@@ -11,7 +11,7 @@ parser.add_argument('--task_name',type=str,default='gameof24',choices=['gameof24
 parser.add_argument('--api_key',default=None,type=str,help='input your api key here')
 parser.add_argument('--model_id',type=str,default='gpt-4o',help='Input model id here, if use local model, input the path to the local model')
 parser.add_argument('--rag_dir',type=str,default='./rag_dir',help='Input RAG directory here')
-
+parser.add_argument('--mode',type=str,default='text',choices=['text','code'],help='Run mode: text or code')
 
 
 GameOf24 = """
@@ -39,6 +39,7 @@ if __name__ == "__main__":
     api_key = args.api_key
     model_id = args.model_id
     rag_dir = args.rag_dir
+    run_mode = args.mode
     now = datetime.datetime.now()
     timestamp_str = now.strftime("%Y-%m-%d-%H:%M:%S")
     output_dir = 'test_results'
@@ -72,11 +73,14 @@ if __name__ == "__main__":
             api_key = api_key,
             model_id = model_id,
             need_check = True,
-            rag_dir = rag_dir
+            rag_dir = rag_dir,
+            run_mode = run_mode
         )
     
     iterator = enumerate((open(path)), start=1)
     with open(path, 'r', encoding='utf-8') as f: total_lines = sum(1 for _ in f)
+    safe_model_id = model_id.replace("/", "-")
+    output_path = f"test_results/BoT_{task}_{safe_model_id}_{run_mode}_{timestamp_str}.jsonl"
     
     for idx, line in tqdm(iterator, total=total_lines):
         if idx < 1: # 1번째부터 시작
@@ -85,8 +89,20 @@ if __name__ == "__main__":
         user_input = user_prompt + input
         test_bot.update_input(user_input)
         result = test_bot.bot_run()
-        tmp = {'input':input,'result':result}
-        with open(f'test_results/BoT_{task}_Llama-3-8B_{timestamp_str}.jsonl', 'a+', encoding='utf-8') as file:
+        metrics = test_bot.run_metrics or {}
+        tmp = {
+            "input": input,
+            "result": result,
+            "mode": run_mode,
+            "model_id": model_id,
+            "latency": metrics.get("latency"),
+            "prompt_tokens": metrics.get("prompt_tokens"),
+            "completion_tokens": metrics.get("completion_tokens"),
+            "total_tokens": metrics.get("total_tokens"),
+            "api_cost": metrics.get("api_cost"),
+            "llm_calls": metrics.get("calls"),
+        }
+        with open(output_path, 'a+', encoding='utf-8') as file:
             json_str = json.dumps(tmp)
             file.write(json_str + '\n')
         logger.info("A Problem is completed!")
