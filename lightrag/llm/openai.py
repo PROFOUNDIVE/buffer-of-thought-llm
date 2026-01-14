@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..utils import verbose_debug, VERBOSE_DEBUG
 import sys
 import os
@@ -35,7 +37,7 @@ from lightrag.types import GPTKeywordExtractionFormat
 from lightrag.api import __api_version__
 
 import numpy as np
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 from dotenv import load_dotenv
 
@@ -52,8 +54,8 @@ class InvalidResponseError(Exception):
 
 
 def create_openai_async_client(
-    api_key: str | None = None,
-    base_url: str | None = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
     client_configs: dict[str, Any] = None,
 ) -> AsyncOpenAI:
     """Create an AsyncOpenAI client with the given configuration.
@@ -109,11 +111,11 @@ def create_openai_async_client(
 async def openai_complete_if_cache(
     model: str,
     prompt: str,
-    system_prompt: str | None = None,
-    history_messages: list[dict[str, Any]] | None = None,
-    base_url: str | None = None,
-    api_key: str | None = None,
-    token_tracker: Any | None = None,
+    system_prompt: Optional[str] = None,
+    history_messages: Optional[list[dict[str, Any]]] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    token_tracker: Optional[Any] = None,
     **kwargs: Any,
 ) -> str:
     """Complete a prompt using OpenAI's API with caching support.

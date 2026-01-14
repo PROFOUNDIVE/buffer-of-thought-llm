@@ -1,6 +1,8 @@
 """
 This module contains all the routers for the LightRAG API.
 """
+from __future__ import annotations
+
 
 from .document_routes import router as document_router
 from .query_routes import router as query_router

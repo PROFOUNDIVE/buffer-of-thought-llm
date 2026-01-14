@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # gunicorn_config.py
 import os
 import logging

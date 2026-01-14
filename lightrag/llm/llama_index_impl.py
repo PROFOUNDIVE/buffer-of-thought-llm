@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pipmaster as pm
 from llama_index.core.llms import (
     ChatMessage,

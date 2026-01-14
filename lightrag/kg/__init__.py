@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 STORAGE_IMPLEMENTATIONS = {
     "KV_STORAGE": {
         "implementations": [

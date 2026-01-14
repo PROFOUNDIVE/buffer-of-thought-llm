@@ -1,6 +1,8 @@
 """
 This module contains all graph-related routes for the LightRAG API.
 """
+from __future__ import annotations
+
 
 from typing import Optional, Dict, Any
 import traceback

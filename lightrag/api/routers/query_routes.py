@@ -1,6 +1,8 @@
 """
 This module contains all query-related routes for the LightRAG API.
 """
+from __future__ import annotations
+
 
 import json
 import logging

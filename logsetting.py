@@ -1,6 +1,8 @@
 import logging
+import os
 from tqdm import tqdm
 import datetime
+
 
 
 # 1) ANSI 색상 코드 매핑
@@ -29,9 +31,11 @@ logger.propagate = False
 
 # 핸들러 생성
 streamHandler = logging.StreamHandler()
+os.makedirs("./logs", exist_ok=True)
 fileHandler = logging.FileHandler(
     "./logs/"+datetime.datetime.now().strftime('%Y-%m-%d-%H:%M:%S')+".log" # filename
 )
+
 
 # 기존 포맷에 색 적용 Formatter 사용
 streamHandler.setFormatter(ColorFormatter('[%(levelname)s: %(module)s > %(funcName)s] %(message)s'))

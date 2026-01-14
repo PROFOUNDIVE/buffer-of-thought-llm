@@ -5,6 +5,8 @@ This module defines default values for configuration constants used across
 different parts of the LightRAG system. Centralizing these values ensures
 consistency and makes maintenance easier.
 """
+from __future__ import annotations
+
 
 # Default values for environment variables
 DEFAULT_MAX_GLEANING = 1

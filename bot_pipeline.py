@@ -4,7 +4,6 @@ import http.client
 import json
 import os
 import time
-from accelerate import infer_auto_device_map
 from meta_buffer_utilis import meta_distiller_prompt,extract_and_execute_code
 from test_templates import game24,checkmate,word_sorting
 from meta_buffer import MetaBuffer
@@ -15,16 +14,58 @@ from transformers import AutoTokenizer
 from lightrag import LightRAG, QueryParam
 from logsetting import logger
 
-try:
-    from dotenv import load_dotenv
-except ImportError:
-    load_dotenv = None
-
-
 def _resolve_openai_api_key(explicit_api_key: Optional[str]) -> Optional[str]:
     if explicit_api_key:
         return explicit_api_key
+    # Read from environment only; do not read secret files directly.
     return os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_TOKEN")
+
+
+def _build_meta_distiller_prompt(run_mode: str) -> str:
+    """Build a distillation prompt compatible with the selected run mode.
+
+    - code: preserves original behavior (gameof24 may request python-format answer form).
+    - text: explicitly forbids code blocks and requests a single-line equation format.
+    """
+
+    if run_mode == "code":
+        return meta_distiller_prompt
+
+    # Keep original prompt for structure, then append a strong override so the model
+    # doesn't follow the gameof24 python-code-block instruction.
+    return (
+        meta_distiller_prompt
+        + "\n\n"
+        + "TEXT MODE OVERRIDE (CRITICAL):\n"
+        + "- For gameof24, do NOT require or mention Python/code blocks in the answer form.\n"
+        + "- The downstream solver MUST output a single-line arithmetic expression that equals 24, e.g. (10 - 4) * (13 - 9) = 24.\n"
+        + "- Do not output code, function definitions, variable assignments, or fenced code blocks.\n"
+    )
+
+
+def _build_instantiation_instruction(run_mode: str) -> str:
+    """Build an instantiation instruction compatible with the selected run mode."""
+
+    if run_mode == "code":
+        return """
+You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a thought template. Your goal is to analyze the user's task and generate a specific solution based on the thought template. If the instantiated solution involves Python code, only provide the code and let the compiler handle it. If the solution does not involve code, provide a final answer that is easy to extract from the text.
+It should be noted that all the python code should be within one code block, the answer should not include more than one code block! And strictly follow the thought-template to instantiate the python code but you should also adjust the input parameter according to the user input!
+"""
+
+    return """
+You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a thought template.
+
+For gameof24 (TEXT MODE):
+- Output exactly ONE line: a valid arithmetic expression that equals 24.
+- Format: <expression> = 24
+- Use each of the four given numbers exactly once.
+- Allowed operators: +, -, *, / and parentheses.
+- Do NOT output any code, do NOT use fenced code blocks, and do NOT include explanations.
+
+For other tasks (TEXT MODE):
+- Output only the final answer as plain text. No code blocks.
+"""
+
 
 class Pipeline:
     def __init__(self,model_id,api_key=None,base_url='https://api.openai.com/v1/'):
@@ -49,6 +90,9 @@ class Pipeline:
         else:
             logger.critical(
                 "Missing OpenAI API key. Set OPENAI_API_KEY (e.g., `source .env/secrets.env`) or pass --api_key."
+            )
+            raise RuntimeError(
+                "Missing OpenAI API key; set OPENAI_API_KEY in the environment or pass --api_key."
             )
         self.gen_config_map = {
             "summary": transformers.GenerationConfig(
@@ -266,7 +310,10 @@ class BoT:
             logger.critical(
                 "Missing OpenAI API key. Set OPENAI_API_KEY (e.g., `source .env/secrets.env`) or pass --api_key."
             )
-            
+            raise RuntimeError(
+                "Missing OpenAI API key; set OPENAI_API_KEY in the environment or pass --api_key."
+            )
+
         
         self.user_input = user_input
         
@@ -277,20 +324,17 @@ class BoT:
             raise ValueError(f"Unknown run_mode: {run_mode}")
         self.run_mode = run_mode
         self.run_metrics = {}
-        
-        # test thought templates 추가
-        # for template in [game24, checkmate, word_sorting]:
-            # self.meta_buffer.rag.insert(template)
-        
-        # with open("./math.txt") as f:
-            # self.meta_buffer.rag.insert(f.read())
-            
+
+
     def update_input(self,new_input):
         self.user_input = new_input
         
     def problem_distillation(self):
         logger.info(f"User prompt: {self.user_input}")
-        self.distilled_information = self.pipeline.get_respond(meta_distiller_prompt, self.user_input, decoding_profile="summary")
+        distiller_prompt = _build_meta_distiller_prompt(self.run_mode)
+        self.distilled_information = self.pipeline.get_respond(
+            distiller_prompt, self.user_input, decoding_profile="summary"
+        )
         logger.info(f'Distilled information:{self.distilled_information}')
 
     def buffer_retrieve(self):
@@ -308,10 +352,7 @@ class BoT:
         logger.info(f'Retrieved thought template(RAG response): {self.thought_template}')
         
     def buffer_instantiation(self):
-        self.instantiation_instruct = """
-You are an expert in problem analysis and can apply previous problem-solving approaches to new issues. The user will provide a specific task description and a thought template. Your goal is to analyze the user's task and generate a specific solution based on the thought template. If the instantiated solution involves Python code, only provide the code and let the compiler handle it. If the solution does not involve code, provide a final answer that is easy to extract from the text.
-It should be noted that all the python code should be within one code block, the answer should not include more than one code block! And strictly follow the thought-template to instantiate the python code but you should also adjust the input parameter according to the user input!
-"""
+        self.instantiation_instruct = _build_instantiation_instruction(self.run_mode)
 
         self.formated_input = f"""
 Distilled information:
@@ -322,9 +363,13 @@ Thought template:
 {self.thought_template}
 
 Instantiated Solution:
-Please analyze the above user task description and thought template, and generate a specific, detailed solution. If the solution involves Python code, only provide the code. If not, provide a clear and extractable final answer.        
+Please analyze the above user task description and thought template, and generate a specific, detailed solution.
 """
-        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input, decoding_profile="instantiation")
+        self.result = self.pipeline.get_respond(
+            self.instantiation_instruct,
+            self.formated_input,
+            decoding_profile="instantiation",
+        )
         logger.info(f'Instantiated reasoning result: {self.result}')
         
     def buffer_manager(self):

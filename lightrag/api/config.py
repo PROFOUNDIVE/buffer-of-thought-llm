@@ -1,6 +1,8 @@
 """
 Configs for the LightRAG API.
 """
+from __future__ import annotations
+
 
 import os
 import argparse

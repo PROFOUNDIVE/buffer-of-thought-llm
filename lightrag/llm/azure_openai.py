@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Iterable
 import os
 import pipmaster as pm  # Pipmaster for dynamic library install

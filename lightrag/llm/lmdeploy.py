@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pipmaster as pm  # Pipmaster for dynamic library install
 
 # install specific modules

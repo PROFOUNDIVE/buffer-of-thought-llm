@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .lightrag import LightRAG as LightRAG, QueryParam as QueryParam
 
 __version__ = "1.4.1"

@@ -1,6 +1,8 @@
 """
 This module contains all document-related routes for the LightRAG API.
 """
+from __future__ import annotations
+
 
 import asyncio
 from pyuca import Collator

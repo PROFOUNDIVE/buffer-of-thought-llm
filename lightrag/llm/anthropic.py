@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ..utils import verbose_debug, VERBOSE_DEBUG
 import sys
 import os

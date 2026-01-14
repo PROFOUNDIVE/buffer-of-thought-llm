@@ -1,6 +1,8 @@
 """
 LightRAG FastAPI Server
 """
+from __future__ import annotations
+
 
 from fastapi import FastAPI, Depends, HTTPException, status
 import asyncio
