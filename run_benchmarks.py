@@ -12,6 +12,8 @@ parser.add_argument('--api_key',default=None,type=str,help='input your api key h
 parser.add_argument('--model_id',type=str,default='gpt-4o',help='Input model id here, if use local model, input the path to the local model')
 parser.add_argument('--rag_dir',type=str,default='./rag_dir',help='Input RAG directory here')
 parser.add_argument('--mode',type=str,default='text',choices=['text','code'],help='Run mode: text or code')
+parser.add_argument('--retry_budget',type=int,default=3,help='Max per-problem attempts (temperature scheduled)')
+parser.add_argument('--temperature_schedule',type=str,default='0.0,0.6,0.9',help='Comma-separated temperatures for scheduled retries')
 
 
 GameOf24 = """
@@ -40,6 +42,12 @@ if __name__ == "__main__":
     model_id = args.model_id
     rag_dir = args.rag_dir
     run_mode = args.mode
+    retry_budget = int(args.retry_budget)
+    temperature_schedule = [
+        float(x.strip())
+        for x in str(args.temperature_schedule).split(",")
+        if x.strip() != ""
+    ]
     now = datetime.datetime.now()
     timestamp_str = now.strftime("%Y-%m-%d-%H:%M:%S")
     output_dir = 'test_results'
@@ -74,7 +82,9 @@ if __name__ == "__main__":
             model_id = model_id,
             need_check = True,
             rag_dir = rag_dir,
-            run_mode = run_mode
+            run_mode = run_mode,
+            retry_budget = retry_budget,
+            temperature_schedule = temperature_schedule,
         )
     
     iterator = enumerate((open(path)), start=1)
@@ -87,7 +97,7 @@ if __name__ == "__main__":
             continue
         input = json.loads(line)['input']
         user_input = user_prompt + input
-        test_bot.update_input(user_input)
+        test_bot.update_input(user_input, original_input=input)
         result = test_bot.bot_run()
         metrics = test_bot.run_metrics or {}
         tmp = {

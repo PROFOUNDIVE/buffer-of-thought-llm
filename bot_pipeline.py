@@ -13,6 +13,7 @@ from typing import Optional, List, Dict
 from transformers import AutoTokenizer
 from lightrag import LightRAG, QueryParam
 from logsetting import logger
+from validate_results import _validate_game24_answer
 
 def _resolve_openai_api_key(explicit_api_key: Optional[str]) -> Optional[str]:
     if explicit_api_key:
@@ -197,16 +198,33 @@ class Pipeline:
     def get_metrics(self):
         return dict(self.metrics)
 
-    def get_respond(self, meta_prompt, user_prompt, decoding_profile=None):
+    def get_respond(
+        self,
+        meta_prompt,
+        user_prompt,
+        decoding_profile=None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ):
         start_time = time.perf_counter()
         if self.api:
             client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            kwargs = {}
+            if temperature is not None:
+                kwargs["temperature"] = float(temperature)
+            if top_p is not None:
+                kwargs["top_p"] = float(top_p)
+            if max_tokens is not None:
+                kwargs["max_tokens"] = int(max_tokens)
+
             completion = client.chat.completions.create(
                 model=self.model_id,
                 messages=[
                     {"role": "system", "content": meta_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                **kwargs,
             )
             response = completion.choices[0].message.content
             latency = time.perf_counter() - start_time
@@ -261,7 +279,20 @@ class Pipeline:
 
         
 class BoT:
-    def __init__(self, user_input,problem_id=0,api_key=None,model_id='gpt-4o',embedding_model='text-embedding-3-large',need_check=False,base_url='https://api.openai.com/v1/',rag_dir=None,run_mode="text"):
+    def __init__(
+        self,
+        user_input,
+        problem_id=0,
+        api_key=None,
+        model_id='gpt-4o',
+        embedding_model='text-embedding-3-large',
+        need_check=False,
+        base_url='https://api.openai.com/v1/',
+        rag_dir=None,
+        run_mode="text",
+        retry_budget: int = 1,
+        temperature_schedule: Optional[List[float]] = None,
+    ):
         self.api_key = _resolve_openai_api_key(api_key)
         self.model_id = model_id
         self.embedding_model = embedding_model
@@ -324,10 +355,15 @@ class BoT:
             raise ValueError(f"Unknown run_mode: {run_mode}")
         self.run_mode = run_mode
         self.run_metrics = {}
+        self.retry_budget = int(retry_budget)
+        self.temperature_schedule = list(temperature_schedule) if temperature_schedule else []
+        self.original_input = None
 
 
-    def update_input(self,new_input):
+    def update_input(self, new_input, original_input=None):
         self.user_input = new_input
+        if original_input is not None:
+            self.original_input = original_input
         
     def problem_distillation(self):
         logger.info(f"User prompt: {self.user_input}")
@@ -351,7 +387,7 @@ class BoT:
         )
         logger.info(f'Retrieved thought template(RAG response): {self.thought_template}')
         
-    def buffer_instantiation(self):
+    def buffer_instantiation(self, temperature: Optional[float] = None):
         self.instantiation_instruct = _build_instantiation_instruction(self.run_mode)
 
         self.formated_input = f"""
@@ -369,6 +405,7 @@ Please analyze the above user task description and thought template, and generat
             self.instantiation_instruct,
             self.formated_input,
             decoding_profile="instantiation",
+            temperature=temperature,
         )
         logger.info(f'Instantiated reasoning result: {self.result}')
         
@@ -400,7 +437,7 @@ It should be noted that you should only return the thought template without any 
         """
         self.distilled_thought = self.pipeline.get_respond(thought_distillation_prompt, self.problem_solution_pair, decoding_profile="summary")
         logger.info(f'Distilled thought: {self.distilled_thought}')
-    def reasoner_instantiation(self):
+    def reasoner_instantiation(self, temperature: Optional[float] = None):
         # Temporay using selection method to select answer extract method
         
         problem_id_list = [0,1,2]
@@ -429,7 +466,12 @@ Your respond **should follow the format** below:
 ## Edited code here
 ```
         """
-        self.result = self.pipeline.get_respond(self.instantiation_instruct,self.formated_input, decoding_profile="instantiation")
+        self.result = self.pipeline.get_respond(
+            self.instantiation_instruct,
+            self.formated_input,
+            decoding_profile="instantiation",
+            temperature=temperature,
+        )
         logger.info(f'(1st) Instantiated reasoning result: {self.result}')
         if self.problem_id in problem_id_list:
             self.final_result, code_str = extract_and_execute_code(self.result)
@@ -469,10 +511,44 @@ Your respond **should follow the format** below:
         self.problem_distillation()
         self.buffer_retrieve()
         if self.run_mode == "code":
-            self.reasoner_instantiation()
-            self.result = self.final_result
+            schedule = self.temperature_schedule
+            if self.retry_budget > 1 and len(schedule) == 0:
+                schedule = [0.0, 0.6, 0.9]
+            if len(schedule) == 0:
+                schedule = [None]
+            if len(schedule) < self.retry_budget:
+                schedule = schedule + [schedule[-1]] * (self.retry_budget - len(schedule))
+            if len(schedule) > self.retry_budget:
+                schedule = schedule[: self.retry_budget]
+
+            for temp in schedule:
+                self.reasoner_instantiation(temperature=temp)
+                self.result = self.final_result
+                if self.problem_id == 0 and self.original_input is not None:
+                    try:
+                        if _validate_game24_answer(str(self.original_input), str(self.result)):
+                            break
+                    except Exception:
+                        pass
         else:
-            self.buffer_instantiation()
+            schedule = self.temperature_schedule
+            if self.retry_budget > 1 and len(schedule) == 0:
+                schedule = [0.0, 0.6, 0.9]
+            if len(schedule) == 0:
+                schedule = [None]
+            if len(schedule) < self.retry_budget:
+                schedule = schedule + [schedule[-1]] * (self.retry_budget - len(schedule))
+            if len(schedule) > self.retry_budget:
+                schedule = schedule[: self.retry_budget]
+
+            for temp in schedule:
+                self.buffer_instantiation(temperature=temp)
+                if self.problem_id == 0 and self.original_input is not None:
+                    try:
+                        if _validate_game24_answer(str(self.original_input), str(self.result)):
+                            break
+                    except Exception:
+                        pass
         self.buffer_manager()
         self.run_metrics = self.pipeline.get_metrics()
         self.run_metrics["llm_latency"] = self.run_metrics.get("latency", 0.0)
